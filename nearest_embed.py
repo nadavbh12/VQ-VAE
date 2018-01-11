@@ -1,0 +1,73 @@
+import numpy as np
+import torch
+from torch import nn
+from torch.autograd import Function, Variable
+
+
+class NearestEmbedFunc(Function):
+    """
+    Input:
+    ------
+    x - (batch_size, emb_dim, *)
+        Last dimensions may be arbitrary
+    emb - (emb_dim, num_emb)
+    """
+    @staticmethod
+    def forward(ctx, input, emb):
+        if input.size(1) != emb.size(0):
+            raise RuntimeError('invalid argument: input.size(1) ({}) must be equal to emb.size(0) ({})'.
+                               format(input.size(1), emb.size(0)))
+
+        # save sizes for backward
+        ctx.batch_size = input.size(0)
+        ctx.num_latents = int(np.prod(np.array(input.size()[2:])))
+        ctx.emb_dim = emb.size(0)
+        ctx.num_emb = emb.size(1)
+        ctx.input_type = type(input)
+
+        # find nearest neighbors
+        x_reshaped = input.view(ctx.batch_size * ctx.num_latents, ctx.emb_dim, 1)
+        x_expanded = x_reshaped.expand(ctx.batch_size * ctx.num_latents, ctx.emb_dim, ctx.num_emb)
+        emb_expanded = emb.unsqueeze(0).expand(ctx.batch_size * ctx.num_latents, ctx.emb_dim, ctx.num_emb)
+
+        dist = torch.sum((x_expanded - emb_expanded).pow(2), dim=1)
+        _, argmin = dist.min(1)
+        result = emb.index_select(1, argmin).t()
+
+        ctx.argmin = argmin
+        # TODO: is the contiguous necessary?
+        return result.contiguous().view(input.size())
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_input = grad_emb = None
+        if ctx.needs_input_grad[0]:
+            grad_input = grad_output
+
+        if ctx.needs_input_grad[1]:
+            grad_emb = Variable(grad_output.data.new(ctx.emb_dim, ctx.num_emb).type(ctx.input_type).zero_())
+            grad_output_reshaped = grad_output.contiguous().view(ctx.batch_size * ctx.num_latents, ctx.emb_dim)
+            # TODO: replace for loop?
+            for i in range(ctx.num_emb):
+                if torch.sum(ctx.argmin == i):
+                    grad_emb[:, i] = torch.mean(grad_output_reshaped[ctx.argmin[ctx.argmin == i], :], 0)
+            a = grad_emb.cpu().data.numpy()
+        return grad_input, grad_emb, None
+
+
+def nearest_embed(x, emb):
+    return NearestEmbedFunc().apply(x, emb)
+
+
+class NearestEmbed(nn.Module):
+    def __init__(self, num_embeddings, embeddings_dim):
+        super(NearestEmbed, self).__init__()
+        self.weight = nn.Parameter(torch.rand(embeddings_dim, num_embeddings))
+        nn.init.orthogonal(self.weight.data)
+
+    def forward(self, x):
+        """Input:
+        ---------
+        x - (batch_size, emb_size, *)
+        """
+        return nearest_embed(x, self.weight)
