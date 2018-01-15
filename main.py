@@ -1,105 +1,93 @@
 from __future__ import print_function
+import os
+import logging
 import argparse
 
-import torch
 import torch.utils.data
-from torch import nn, optim
-from torch.autograd import Variable
-from torch.nn import functional as F
+from torch import optim
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
 
-from nearest_embed import NearestEmbed
+from utils.log import setup_logging_and_results
+from auto_encoder import *
+
+models = {'cifar10': {'vae': CVAE,
+                      'vqvae': VQ_CVAE},
+          'mnist': {'vae': VAE,
+                    'vqvae': VQ_VQE}}
+datasets_classes = {'cifar10': datasets.CIFAR10,
+                    'mnist': datasets.MNIST}
+dataset_sizes = {'cifar10': (3, 32, 32),
+                 'mnist': (1, 28, 28)}
 
 
-class VQ_VAE(nn.Module):
-    def __init__(self):
-        super(VQ_VAE, self).__init__()
-
-        self.emb_size = 10
-        self.fc1 = nn.Linear(784, 400)
-        self.fc2 = nn.Linear(400, 200)
-        self.fc3 = nn.Linear(200, 400)
-        self.fc4 = nn.Linear(400, 784)
-
-        self.emb = NearestEmbed(8, self.emb_size)
-
-        self.relu = nn.ReLU()
-        self.sigmoid = nn.Sigmoid()
-
-    def encode(self, x):
-        h1 = self.relu(self.fc1(x))
-        h2 = self.fc2(h1)
-        return h2.view(-1, self.emb_size, int(200 / self.emb_size))
-
-    def decode(self, z):
-        h3 = self.relu(self.fc3(z))
-        return self.sigmoid(self.fc4(h3))
-
-    def forward(self, x):
-        z_e = self.encode(x.view(-1, 784))
-        z_q = self.emb(z_e).view(-1, 200)
-        return self.decode(z_q), z_e, z_q
-
-
-def loss_function(recon_x, x, z_e, emb):
-    bce = F.binary_cross_entropy(recon_x, x.view(-1, 784))
-    vq_loss = F.mse_loss(emb, z_e.detach())
-    commitment_loss = F.mse_loss(z_e, emb.detach())
-
-    return bce, vq_loss, commitment_loss
-
-
-def train(args, model, optimizer, train_loader, epoch):
+def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
     model.train()
     train_loss = 0
     for batch_idx, (data, _) in enumerate(train_loader):
         data = Variable(data)
-        if args.cuda:
+        if cuda:
             data = data.cuda()
         optimizer.zero_grad()
-        recon_batch, z_e, emb = model(data)
-        bce, vq_loss, commitment_loss = loss_function(recon_batch, data, z_e, emb)
-        loss = 5*bce + vq_loss + 3 * commitment_loss
+        outputs = model(data)
+        loss = model.loss_function(data, *outputs)
         loss.backward()
         train_loss += loss.data[0]
         optimizer.step()
-        if batch_idx % args.log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tbce: {:.6f}\tvq_loss: {:.6f}\tcommitment_loss: {:.6f}'.
-                  format(epoch, batch_idx * len(data), len(train_loader.dataset),
+        if batch_idx % log_interval == 0:
+            logging.info('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                         epoch, batch_idx * len(data), len(train_loader.dataset),
                          100. * batch_idx / len(train_loader),
-                         loss.data[0] / len(data), vq_loss.data[0] / len(data), commitment_loss.data[0] / len(data)))
+                         loss.data[0] / len(data)))
+        if batch_idx == (len(train_loader) - 1):
+            save_reconstructed_images(data, epoch, outputs, save_path, 'reconstruction_train')
 
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-        epoch, train_loss / len(train_loader.dataset)))
+    avg_train_loss = train_loss / len(train_loader.dataset)
+    logging.info('====> Epoch: {} Average loss: {:.4f}'.format(
+        epoch, avg_train_loss))
+    return avg_train_loss
 
 
-def test(args, model, test_loader, epoch):
+def save_reconstructed_images(data, epoch, outputs, save_path, name):
+    size = data.size()
+    n = min(data.size(0), 8)
+    batch_size = data.size(0)
+    comparison = torch.cat([data[:n],
+                            outputs[0].view(batch_size, size[1], size[2], size[3])[:n]])
+    save_image(comparison.data.cpu(),
+               os.path.join(save_path, name + '_' + str(epoch) + '.png'), nrow=n)
+
+
+def test_net(epoch, model, test_loader, cuda, save_path):
     model.eval()
     test_loss = 0
     for i, (data, _) in enumerate(test_loader):
-        if args.cuda:
+        if cuda:
             data = data.cuda()
         data = Variable(data, volatile=True)
-        recon_batch, z_e, emb = model(data)
-        bce, vq_loss, commitment_loss = loss_function(recon_batch, data, z_e, emb)
-        test_loss += (bce + vq_loss + 2 * commitment_loss).data[0]
+        outputs = model(data)
+        test_loss += model.loss_function(data, *outputs).data[0]
         if i == 0:
-            n = min(data.size(0), 8)
-            comparison = torch.cat([data[:n],
-                                    recon_batch.view(args.batch_size, 1, 28, 28)[:n]])
-            save_image(comparison.data.cpu(),
-                       'results/reconstruction_' + str(epoch) + '.png', nrow=n)
+            save_reconstructed_images(data, epoch, outputs, save_path, 'reconstruction_test')
 
     test_loss /= len(test_loader.dataset)
-    print('====> Test set loss: {:.4f}'.format(test_loss))
+    logging.info('====> Test set loss: {:.4f}'.format(test_loss))
+    return test_loss
 
 
 def main():
-    parser = argparse.ArgumentParser(description='VAE MNIST Example')
+    parser = argparse.ArgumentParser(description='Variational AutoEncoders')
     parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                         help='input batch size for training (default: 128)')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+    parser.add_argument('--hidden', type=int, default=256, metavar='N',
+                        help='number of hidden channels (default: 256)')
+    parser.add_argument('--model', default='vae', choices=['vae', 'vqvae'],
+                        help='autoencoder variant to use: vae | vqvae')
+    parser.add_argument('--dataset', default='cifar10', choices=['mnist', 'cifar10'],
+                        help='dataset to use: mnist | cifar10')
+    parser.add_argument('--lr', type=float, default=5e-3,
+                        help='learning rate (default: 2e-4)')
+    parser.add_argument('--epochs', type=int, default=20, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='enables CUDA training')
@@ -107,38 +95,50 @@ def main():
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                         help='how many batches to wait before logging training status')
+    parser.add_argument('--results-dir', metavar='RESULTS_DIR', default='./results',
+                        help='results dir')
+    parser.add_argument('--data-format', default='json',
+                        help='in which format to save the data')
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
+
+    results, save_path = setup_logging_and_results(args)
 
     torch.manual_seed(args.seed)
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
 
-    kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-    train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=True, download=True,
-                       transform=transforms.ToTensor()),
-        batch_size=args.batch_size, shuffle=True, **kwargs)
-    test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
-        batch_size=args.batch_size, shuffle=True, **kwargs)
-
-    model = VQ_VAE()
+    model = models[args.dataset][args.model](args.hidden)
     if args.cuda:
         model.cuda()
 
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    if args.dataset == 'cifar10':
+        lr = 2e-4
+    elif args.dataset == 'mnist':
+        lr = 1e-4
+    else:
+        raise ValueError('invalid dataset')
+
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+
+    kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+    train_loader = torch.utils.data.DataLoader(
+        datasets_classes[args.dataset]('../data', train=True, download=True,
+                                       transform=transforms.ToTensor()),
+        batch_size=args.batch_size, shuffle=True, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        datasets_classes[args.dataset]('../data', train=False, transform=transforms.ToTensor()),
+        batch_size=args.batch_size, shuffle=True, **kwargs)
 
     for epoch in range(1, args.epochs + 1):
-        train(args, model, optimizer, train_loader, epoch)
-        test(args, model, test_loader, epoch)
-
-        # Display the decoding of all the embeddings
-        # Decoding is deterministic
-        # num_emb = model.emb.weight.size(1)
-        # sample = model.decode(model.emb.weight.t()).cpu()
-        # save_image(sample.data.view(num_emb, 1, 28, 28),
-        #            'results/sample_' + str(epoch) + '.png')
+        train_loss = train(epoch, model, train_loader, optimizer, args.cuda, args.log_interval, save_path)
+        test_loss = test_net(epoch, model, test_loader, args.cuda, save_path)
+        sample = model.sample(32)
+        save_image(sample.data.view(32, *dataset_sizes[args.dataset]),
+                   os.path.join(save_path, 'sample_' + str(epoch) + '.png'))
+        results.add(epoch=epoch, train_loss=train_loss, test_loss=test_loss)
+        results.plot(x='epoch', y=['train_loss', 'test_loss'])
+        results.save()
 
 
 if __name__ == "__main__":

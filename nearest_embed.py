@@ -47,7 +47,7 @@ class NearestEmbedFunc(Function):
         if ctx.needs_input_grad[1]:
             grad_emb = Variable(grad_output.data.new(ctx.emb_dim, ctx.num_emb).type(ctx.input_type).zero_())
             grad_output_reshaped = grad_output.contiguous().view(ctx.batch_size * ctx.num_latents, ctx.emb_dim)
-            # TODO: replace for loop?
+            # TODO: replace for loop
             for i in range(ctx.num_emb):
                 if torch.sum(ctx.argmin == i):
                     grad_emb[:, i] = torch.mean(grad_output_reshaped[ctx.argmin[ctx.argmin == i], :], 0)
