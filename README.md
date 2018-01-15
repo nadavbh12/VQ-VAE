@@ -1,6 +1,6 @@
-# Basic VQ-VAE Example
+# Mnist/Cifar10 CVAE and VQ-VAE
 
-This is a minimalistic implementation of the VQ-VAE (Vector Quantized Variational AutoEncoder)
+This is an implementation of the VQ-VAE (Vector Quantized Variational Autoencoder) and Convolutional Varational Autoencoder.
  from [Neural Discrete representation learning](https://arxiv.org/pdf/1711.00937.pdf) for compressing MNIST and Cifar10.
 The code is based upon [pytorch/examples/vae](https://github.com/pytorch/examples/tree/master/vae).
 
