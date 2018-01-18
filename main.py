@@ -5,6 +5,7 @@ import argparse
 
 import torch.utils.data
 from torch import optim
+import torch.backends.cudnn as cudnn
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
 
@@ -14,7 +15,7 @@ from auto_encoder import *
 models = {'cifar10': {'vae': CVAE,
                       'vqvae': VQ_CVAE},
           'mnist': {'vae': VAE,
-                    'vqvae': VQ_VQE}}
+                    'vqvae': VQ_VAE}}
 datasets_classes = {'cifar10': datasets.CIFAR10,
                     'mnist': datasets.MNIST}
 dataset_sizes = {'cifar10': (3, 32, 32),
@@ -99,6 +100,8 @@ def main():
                         help='results dir')
     parser.add_argument('--data-format', default='json',
                         help='in which format to save the data')
+    parser.add_argument('--gpus', default='1',
+                        help='gpus used for training - e.g 0,1,3')
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -106,6 +109,10 @@ def main():
 
     torch.manual_seed(args.seed)
     if args.cuda:
+        torch.cuda.manual_seed_all(args.seed)
+        args.gpus = [int(i) for i in args.gpus.split(',')]
+        torch.cuda.set_device(args.gpus[0])
+        cudnn.benchmark = True
         torch.cuda.manual_seed(args.seed)
 
     model = models[args.dataset][args.model](args.hidden)
@@ -113,7 +120,7 @@ def main():
         model.cuda()
 
     if args.dataset == 'cifar10':
-        lr = 2e-4
+        lr = 5e-4
     elif args.dataset == 'mnist':
         lr = 1e-4
     else:
