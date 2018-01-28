@@ -2,7 +2,6 @@ import unittest
 
 import numpy as np
 import torch
-from torch import nn
 from torch.autograd import Variable
 
 from nearest_embed import nearest_embed

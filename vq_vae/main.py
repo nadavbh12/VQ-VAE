@@ -10,7 +10,7 @@ from torchvision import datasets, transforms
 from torchvision.utils import save_image
 
 from utils.log import setup_logging_and_results
-from auto_encoder import *
+from vq_vae.auto_encoder import *
 
 models = {'cifar10': {'vae': CVAE,
                       'vqvae': VQ_CVAE},
@@ -41,7 +41,7 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
                          100. * batch_idx / len(train_loader),
                          loss.data[0] / len(data)))
         if batch_idx == (len(train_loader) - 1):
-            save_reconstructed_images(data, epoch, outputs, save_path, 'reconstruction_train')
+            save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_train')
 
     avg_train_loss = train_loss / len(train_loader.dataset)
     logging.info('====> Epoch: {} Average loss: {:.4f}'.format(
@@ -54,7 +54,7 @@ def save_reconstructed_images(data, epoch, outputs, save_path, name):
     n = min(data.size(0), 8)
     batch_size = data.size(0)
     comparison = torch.cat([data[:n],
-                            outputs[0].view(batch_size, size[1], size[2], size[3])[:n]])
+                            outputs.view(batch_size, size[1], size[2], size[3])[:n]])
     save_image(comparison.data.cpu(),
                os.path.join(save_path, name + '_' + str(epoch) + '.png'), nrow=n)
 
@@ -69,7 +69,7 @@ def test_net(epoch, model, test_loader, cuda, save_path):
         outputs = model(data)
         test_loss += model.loss_function(data, *outputs).data[0]
         if i == 0:
-            save_reconstructed_images(data, epoch, outputs, save_path, 'reconstruction_test')
+            save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_test')
 
     test_loss /= len(test_loader.dataset)
     logging.info('====> Test set loss: {:.4f}'.format(test_loss))
@@ -98,6 +98,8 @@ def main():
                         help='how many batches to wait before logging training status')
     parser.add_argument('--results-dir', metavar='RESULTS_DIR', default='./results',
                         help='results dir')
+    parser.add_argument('--save-name', default='',
+                        help='saved folder')
     parser.add_argument('--data-format', default='json',
                         help='in which format to save the data')
     parser.add_argument('--gpus', default='1',

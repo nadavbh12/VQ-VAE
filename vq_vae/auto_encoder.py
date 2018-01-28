@@ -7,7 +7,7 @@ from torch import nn
 from torch.autograd import Variable
 from torch.nn import functional as F
 
-from nearest_embed import NearestEmbed
+from .nearest_embed import NearestEmbed
 
 
 class AbstractAutoEncoder(nn.Module):
