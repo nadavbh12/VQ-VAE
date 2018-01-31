@@ -37,9 +37,9 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
         optimizer.step()
         if batch_idx % log_interval == 0:
             logging.info('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                         epoch, batch_idx * len(data), len(train_loader.dataset),
-                         100. * batch_idx / len(train_loader),
-                         loss.data[0] / len(data)))
+                epoch, batch_idx * len(data), len(train_loader.dataset),
+                       100. * batch_idx / len(train_loader),
+                       loss.data[0] / len(data)))
         if batch_idx == (len(train_loader) - 1):
             save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_train')
 
@@ -78,32 +78,38 @@ def test_net(epoch, model, test_loader, cuda, save_path):
 
 def main():
     parser = argparse.ArgumentParser(description='Variational AutoEncoders')
-    parser.add_argument('--batch-size', type=int, default=128, metavar='N',
-                        help='input batch size for training (default: 128)')
-    parser.add_argument('--hidden', type=int, default=256, metavar='N',
-                        help='number of hidden channels (default: 256)')
-    parser.add_argument('--model', default='vae', choices=['vae', 'vqvae'],
-                        help='autoencoder variant to use: vae | vqvae')
-    parser.add_argument('--dataset', default='cifar10', choices=['mnist', 'cifar10'],
-                        help='dataset to use: mnist | cifar10')
-    parser.add_argument('--lr', type=float, default=5e-3,
-                        help='learning rate (default: 2e-4)')
-    parser.add_argument('--epochs', type=int, default=20, metavar='N',
-                        help='number of epochs to train (default: 10)')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
-                        help='enables CUDA training')
-    parser.add_argument('--seed', type=int, default=1, metavar='S',
-                        help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                        help='how many batches to wait before logging training status')
-    parser.add_argument('--results-dir', metavar='RESULTS_DIR', default='./results',
-                        help='results dir')
-    parser.add_argument('--save-name', default='',
-                        help='saved folder')
-    parser.add_argument('--data-format', default='json',
-                        help='in which format to save the data')
-    parser.add_argument('--gpus', default='1',
-                        help='gpus used for training - e.g 0,1,3')
+
+    model_parser = parser.add_argument_group('Model Parameters')
+    model_parser.add_argument('--model', default='vae', choices=['vae', 'vqvae'],
+                              help='autoencoder variant to use: vae | vqvae')
+    model_parser.add_argument('--batch-size', type=int, default=128, metavar='N',
+                              help='input batch size for training (default: 128)')
+    model_parser.add_argument('--hidden', type=int, default=256, metavar='N',
+                              help='number of hidden channels (default: 256)')
+    model_parser.add_argument('--lr', type=float, default=5e-3,
+                              help='learning rate (default: 2e-4)')
+
+    training_parser = parser.add_argument_group('Training Parameters')
+    training_parser.add_argument('--dataset', default='cifar10', choices=['mnist', 'cifar10'],
+                                 help='dataset to use: mnist | cifar10')
+    training_parser.add_argument('--epochs', type=int, default=20, metavar='N',
+                                 help='number of epochs to train (default: 10)')
+    training_parser.add_argument('--no-cuda', action='store_true', default=False,
+                                 help='enables CUDA training')
+    training_parser.add_argument('--seed', type=int, default=1, metavar='S',
+                                 help='random seed (default: 1)')
+    training_parser.add_argument('--gpus', default='0',
+                                 help='gpus used for training - e.g 0,1,3')
+
+    logging_parser = parser.add_argument_group('Logging Parameters')
+    logging_parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+                                help='how many batches to wait before logging training status')
+    logging_parser.add_argument('--results-dir', metavar='RESULTS_DIR', default='./results',
+                                help='results dir')
+    logging_parser.add_argument('--save-name', default='',
+                                help='saved folder')
+    logging_parser.add_argument('--data-format', default='json',
+                                help='in which format to save the data')
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
