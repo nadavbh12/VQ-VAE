@@ -1,5 +1,5 @@
-from __future__ import print_function
 import os
+import sys
 import logging
 import argparse
 
@@ -20,11 +20,15 @@ datasets_classes = {'cifar10': datasets.CIFAR10,
                     'mnist': datasets.MNIST}
 dataset_sizes = {'cifar10': (3, 32, 32),
                  'mnist': (1, 28, 28)}
+default_hyperparams = {'cifar10': {'lr': 5e-4},
+                       'mnist': {'lr': 1e-4}}
 
 
 def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
     model.train()
-    train_loss = 0
+    loss_dict = model.latest_losses()
+    losses = {k + '_train': 0 for k, v in loss_dict.items()}
+    epoch_losses = {k + '_train': 0 for k, v in loss_dict.items()}
     for batch_idx, (data, _) in enumerate(train_loader):
         data = Variable(data)
         if cuda:
@@ -33,20 +37,28 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
         outputs = model(data)
         loss = model.loss_function(data, *outputs)
         loss.backward()
-        train_loss += loss.data[0]
         optimizer.step()
+        latest_losses = model.latest_losses()
+        for key in latest_losses:
+            losses[key + '_train'] += latest_losses[key].data[0]
+            epoch_losses[key + '_train'] += latest_losses[key].data[0]
+
         if batch_idx % log_interval == 0:
-            logging.info('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                       100. * batch_idx / len(train_loader),
-                       loss.data[0] / len(data)))
+            for key in latest_losses:
+                losses[key + '_train'] /= log_interval
+            loss_string = ' '.join(['{}: {:.6f}'.format(k, v) for k, v in losses.items()])
+            logging.info('Train Epoch: {} [{:5d}/{} ({:2d}%)]\t{}'.format(
+                         epoch, batch_idx * len(data), len(train_loader.dataset),
+                         int(100. * batch_idx / len(train_loader)),
+                         loss_string))
         if batch_idx == (len(train_loader) - 1):
             save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_train')
 
-    avg_train_loss = train_loss / len(train_loader.dataset)
-    logging.info('====> Epoch: {} Average loss: {:.4f}'.format(
-        epoch, avg_train_loss))
-    return avg_train_loss
+    for key in epoch_losses:
+        epoch_losses[key] /= len(train_loader.dataset)
+    loss_string = '\t'.join(['{}: {:.6f}'.format(k, v) for k, v in epoch_losses.items()])
+    logging.info('====> Epoch: {} {}'.format(epoch, loss_string))
+    return epoch_losses
 
 
 def save_reconstructed_images(data, epoch, outputs, save_path, name):
@@ -61,22 +73,28 @@ def save_reconstructed_images(data, epoch, outputs, save_path, name):
 
 def test_net(epoch, model, test_loader, cuda, save_path):
     model.eval()
-    test_loss = 0
+    loss_dict = model.latest_losses()
+    losses = {k + '_test': 0 for k, v in loss_dict.items()}
     for i, (data, _) in enumerate(test_loader):
         if cuda:
             data = data.cuda()
         data = Variable(data, volatile=True)
         outputs = model(data)
-        test_loss += model.loss_function(data, *outputs).data[0]
+        model.loss_function(data, *outputs)
+        latest_losses = model.latest_losses()
+        for key in latest_losses:
+            losses[key + '_test'] += latest_losses[key].data[0]
         if i == 0:
             save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_test')
 
-    test_loss /= len(test_loader.dataset)
-    logging.info('====> Test set loss: {:.4f}'.format(test_loss))
-    return test_loss
+    for key in losses:
+        losses[key] /= len(test_loader.dataset)
+    loss_string = ' '.join(['{}: {:.6f}'.format(k, v) for k, v in losses.items()])
+    logging.info('====> Test set losses: {}'.format(loss_string))
+    return losses
 
 
-def main():
+def main(args):
     parser = argparse.ArgumentParser(description='Variational AutoEncoders')
 
     model_parser = parser.add_argument_group('Model Parameters')
@@ -86,8 +104,14 @@ def main():
                               help='input batch size for training (default: 128)')
     model_parser.add_argument('--hidden', type=int, default=256, metavar='N',
                               help='number of hidden channels (default: 256)')
-    model_parser.add_argument('--lr', type=float, default=5e-3,
-                              help='learning rate (default: 2e-4)')
+    model_parser.add_argument('--lr', type=float, default=None,
+                              help='learning rate')
+    model_parser.add_argument('--vq_coef', type=float, default=None,
+                              help='vq coefficient in loss')
+    model_parser.add_argument('--commit_coef', type=float, default=None,
+                              help='commitment coefficient in loss')
+    model_parser.add_argument('--kl_coef', type=float, default=None,
+                              help='kl-divergence coefficient in loss')
 
     training_parser = parser.add_argument_group('Training Parameters')
     training_parser.add_argument('--dataset', default='cifar10', choices=['mnist', 'cifar10'],
@@ -110,8 +134,10 @@ def main():
                                 help='saved folder')
     logging_parser.add_argument('--data-format', default='json',
                                 help='in which format to save the data')
-    args = parser.parse_args()
+    args = parser.parse_args(args)
     args.cuda = not args.no_cuda and torch.cuda.is_available()
+
+    lr = args.lr or default_hyperparams[args.dataset]['lr']
 
     results, save_path = setup_logging_and_results(args)
 
@@ -127,13 +153,6 @@ def main():
     if args.cuda:
         model.cuda()
 
-    if args.dataset == 'cifar10':
-        lr = 5e-4
-    elif args.dataset == 'mnist':
-        lr = 1e-4
-    else:
-        raise ValueError('invalid dataset')
-
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
@@ -146,15 +165,18 @@ def main():
         batch_size=args.batch_size, shuffle=True, **kwargs)
 
     for epoch in range(1, args.epochs + 1):
-        train_loss = train(epoch, model, train_loader, optimizer, args.cuda, args.log_interval, save_path)
-        test_loss = test_net(epoch, model, test_loader, args.cuda, save_path)
+        train_losses = train(epoch, model, train_loader, optimizer, args.cuda, args.log_interval, save_path)
+        test_losses = test_net(epoch, model, test_loader, args.cuda, save_path)
         sample = model.sample(32)
         save_image(sample.data.view(32, *dataset_sizes[args.dataset]),
                    os.path.join(save_path, 'sample_' + str(epoch) + '.png'))
-        results.add(epoch=epoch, train_loss=train_loss, test_loss=test_loss)
-        results.plot(x='epoch', y=['train_loss', 'test_loss'])
+
+        results.add(epoch=epoch, **train_losses, **test_losses)
+        for k in train_losses:
+            key = k[:-6]
+            results.plot(x='epoch', y=[key + '_train', key + '_test'])
         results.save()
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
