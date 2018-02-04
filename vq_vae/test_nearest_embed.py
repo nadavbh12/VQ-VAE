@@ -4,7 +4,8 @@ import numpy as np
 import torch
 from torch.autograd import Variable
 
-from nearest_embed import nearest_embed
+from vq_vae.nearest_embed import nearest_embed
+
 
 # class NearestEmbedTest(unittest.TestCase):
 #     def test_something(self):
@@ -19,23 +20,22 @@ from nearest_embed import nearest_embed
 
 class NearestEmbed2dTest(unittest.TestCase):
     def test_something(self):
-
         # inputs
         emb = Variable(torch.eye(5, 5).double(), requires_grad=True)
         a = np.array(([[[0.9, 0.0, 0.0, 0.0, 0.0],
                         [0.0, 0.8, 0.0, 0.0, 0.0]],
                        [[0.0, 0.0, 0.7, 0.0, 0.0],
-                        [0.0, 0.0, 0.0, 0.6, 0.0]]]),dtype=np.double).reshape((2,5,2))
+                        [0.0, 0.0, 0.0, 0.6, 0.0]]]), dtype=np.double).reshape((2, 5, 2))
 
         # expected results
         result = np.array(([[[1., 0., 0., 0., 0.],
                              [0., 1., 0., 0., 0.]],
                             [[0., 0., 1., 0., 0.],
-                             [0., 0., 0., 1., 0.]]]), dtype=np.double).reshape((2,5,2))
+                             [0., 0., 0., 1., 0.]]]), dtype=np.double).reshape((2, 5, 2))
         grad_input = np.array(([[[1., 0., 0., 0., 0.],
                                  [0., 1., 0., 0., 0.]],
                                 [[0., 0., 1., 0., 0.],
-                                 [0., 0., 0., 1., 0.]]]), dtype=np.double).reshape((2,5,2))
+                                 [0., 0., 0., 1., 0.]]]), dtype=np.double).reshape((2, 5, 2))
         grad_emb = np.array(([[1., 0., 0., 0., 0.],
                               [0., 1., 0., 0., 0.],
                               [0., 0., 1., 0., 0.],
@@ -48,7 +48,7 @@ class NearestEmbed2dTest(unittest.TestCase):
         input = Variable(torch.from_numpy(a).double(), requires_grad=True)
         z_q = nearest_embed(input, emb)
 
-        (0.5*z_q.pow(2)).sum().backward(retain_graph=True)
+        (0.5 * z_q.pow(2)).sum().backward(retain_graph=True)
         result = torch.from_numpy(result)
 
         self.assertEqual(True, torch.equal(z_q.data, result))
@@ -61,17 +61,17 @@ class NearestEmbed2dTest(unittest.TestCase):
         a = np.array(([[[0.9, 0.0, 0.0, 0.0, 0.0],
                         [0.0, 0.8, 0.0, 0.0, 0.0]],
                        [[0.0, 0.7, 0.0, 0.0, 0.0],
-                        [0.0, 0.6, 0.0, 0.0, 0.0]]]), dtype=np.double).reshape((2,5,2))
+                        [0.0, 0.6, 0.0, 0.0, 0.0]]]), dtype=np.double).reshape((2, 5, 2))
 
         # expected results
         result = np.array(([[[1., 0., 0., 0., 0.],
                              [0., 1., 0., 0., 0.]],
                             [[0., 1., 0., 0., 0.],
-                             [0., 1., 0., 0., 0.]]]), dtype=np.double).reshape((2,5,2))
+                             [0., 1., 0., 0., 0.]]]), dtype=np.double).reshape((2, 5, 2))
         grad_input = np.array(([[[1., 0., 0., 0., 0.],
                                  [0., 1., 0., 0., 0.]],
                                 [[0., 1., 0., 0., 0.],
-                                 [0., 1., 0., 0., 0.]]]), dtype=np.double).reshape((2,5,2))
+                                 [0., 1., 0., 0., 0.]]]), dtype=np.double).reshape((2, 5, 2))
         grad_emb = np.array(([[1., 0., 0., 0., 0.],
                               [0., 1., 0., 0., 0.],
                               [0., 0., 0., 0., 0.],

@@ -108,16 +108,16 @@ class VAE(nn.Module):
 
 class VQ_VAE(nn.Module):
     """Vector Quantized AutoEncoder for mnist"""
-    def __init__(self, vq_coef=0.2, comit_coef=0.4, *args):
+    def __init__(self, k=10, vq_coef=0.2, comit_coef=0.4, *args):
         super(VQ_VAE, self).__init__()
 
-        self.emb_size = 10
+        self.emb_size = k
         self.fc1 = nn.Linear(784, 400)
         self.fc2 = nn.Linear(400, 200)
         self.fc3 = nn.Linear(200, 400)
         self.fc4 = nn.Linear(400, 784)
 
-        self.emb = NearestEmbed(16, self.emb_size)
+        self.emb = NearestEmbed(k, self.emb_size)
 
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
@@ -138,8 +138,9 @@ class VQ_VAE(nn.Module):
 
     def forward(self, x):
         z_e = self.encode(x.view(-1, 784))
-        z_q = self.emb(z_e).view(-1, 200)
-        return self.decode(z_q), z_e, z_q
+        z_q = self.emb(z_e, weight_sg=True).view(-1, 200)
+        emb = self.emb(z_e.detach()).view(-1, 200)
+        return self.decode(z_q), z_e, emb
 
     def sample(self, size):
         sample = Variable(torch.randn(size, self.emb_size, int(200 / self.emb_size)))
@@ -163,12 +164,14 @@ class ResBlock(nn.Module):
     def __init__(self, in_channels, channels, bn=False):
         super(ResBlock, self).__init__()
 
-        self.convs = nn.Sequential(
-            nn.LeakyReLU(),
+        layers = [
+            nn.ReLU(),
             nn.Conv2d(in_channels, channels, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels, channels, kernel_size=1, stride=1, padding=0),
-        )
+            nn.ReLU(),
+            nn.Conv2d(in_channels, channels, kernel_size=1, stride=1, padding=0)]
+        if bn:
+            layers.insert(2, nn.BatchNorm2d(channels))
+        self.convs = nn.Sequential(*layers)
 
     def forward(self, x):
         return x + self.convs(x)
@@ -251,33 +254,41 @@ class CVAE(AbstractAutoEncoder):
 
 
 class VQ_CVAE(nn.Module):
-    def __init__(self, d, dict_size=16, bn=True, vq_coef=0.2, comit_coef=0.7):
+    def __init__(self, d, k=10, bn=False, vq_coef=1, commit_coef=0.1):
         super(VQ_CVAE, self).__init__()
 
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, d // 2, kernel_size=4, stride=2),
+            nn.Conv2d(3, d, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(d // 2, d, kernel_size=4, stride=2),
+            nn.Conv2d(d, d, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            ResBlock(d, d),
-            ResBlock(d, d),
+            ResBlock(d, d, bn),
+            ResBlock(d, d, bn),
         )
         self.decoder = nn.Sequential(
             ResBlock(d, d),
             ResBlock(d, d),
-            nn.ConvTranspose2d(d, d // 2, kernel_size=4, stride=2),
-            nn.ReplicationPad2d((0, 1, 0, 1)),
+            nn.ConvTranspose2d(d, d, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(d // 2, 3, kernel_size=4, stride=2),
+            nn.ConvTranspose2d(d, 3, kernel_size=4, stride=2, padding=1),
         )
-        self.f = 6
+        self.f = 8
         self.d = d
-        self.emb = NearestEmbed(dict_size, d)
+        self.emb = NearestEmbed(k, d)
         self.vq_coef = vq_coef
-        self.comit_coef = comit_coef
+        self.commit_coef = commit_coef
         self.mse = 0
         self.vq_loss = 0
         self.commit_loss = 0
+
+        for l in self.modules():
+            if isinstance(l, nn.Linear) or isinstance(l, nn.Conv2d):
+                l.weight.data.normal_(0, 0.02)
+                torch.fmod(l.weight, 0.04)
+                nn.init.constant(l.bias, 0)
+
+        self.emb.weight.data.normal_(0, 0.02)
+        torch.fmod(self.emb.weight, 0.04)
 
     def encode(self, x):
         return self.encoder(x)
@@ -287,8 +298,9 @@ class VQ_CVAE(nn.Module):
 
     def forward(self, x):
         z_e = self.encode(x)
-        z_q = self.emb(z_e)
-        return self.decode(z_q), z_e, z_q
+        z_q = self.emb(z_e, weight_sg=True)
+        emb = self.emb(z_e.detach())
+        return self.decode(z_q), z_e, emb
 
     def sample(self, size):
         sample = Variable(torch.randn(size, self.d, self.f ** 2), requires_grad=False)
@@ -299,10 +311,10 @@ class VQ_CVAE(nn.Module):
     def loss_function(self, x, recon_x, z_e, emb):
         self.mse = F.mse_loss(recon_x, x)
 
-        self.vq_loss = F.mse_loss(emb, z_e.detach())
-        self.commit_loss = F.mse_loss(z_e, emb.detach())
+        self.vq_loss = torch.mean(torch.norm((emb - z_e.detach())**2, 2, 1))
+        self.commit_loss = torch.mean(torch.norm((emb.detach() - z_e)**2, 2, 1))
 
-        return self.mse + self.vq_coef*self.vq_loss + self.comit_coef*self.commit_loss
+        return self.mse + self.vq_coef*self.vq_loss + self.commit_coef*self.commit_loss
 
     def latest_losses(self):
         return {'mse': self.mse, 'vq': self.vq_loss, 'commitment': self.commit_loss}

@@ -51,7 +51,6 @@ class NearestEmbedFunc(Function):
             for i in range(ctx.num_emb):
                 if torch.sum(ctx.argmin == i):
                     grad_emb[:, i] = torch.mean(grad_output_reshaped[ctx.argmin[ctx.argmin == i], :], 0)
-            a = grad_emb.cpu().data.numpy()
         return grad_input, grad_emb, None
 
 
@@ -63,11 +62,10 @@ class NearestEmbed(nn.Module):
     def __init__(self, num_embeddings, embeddings_dim):
         super(NearestEmbed, self).__init__()
         self.weight = nn.Parameter(torch.rand(embeddings_dim, num_embeddings))
-        nn.init.orthogonal(self.weight.data)
 
-    def forward(self, x):
+    def forward(self, x, weight_sg=False):
         """Input:
         ---------
         x - (batch_size, emb_size, *)
         """
-        return nearest_embed(x, self.weight)
+        return nearest_embed(x, self.weight.detach() if weight_sg else self.weight)

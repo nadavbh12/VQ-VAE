@@ -20,8 +20,8 @@ datasets_classes = {'cifar10': datasets.CIFAR10,
                     'mnist': datasets.MNIST}
 dataset_sizes = {'cifar10': (3, 32, 32),
                  'mnist': (1, 28, 28)}
-default_hyperparams = {'cifar10': {'lr': 5e-4},
-                       'mnist': {'lr': 1e-4}}
+default_hyperparams = {'cifar10': {'lr': 2e-4, 'k': 10},
+                       'mnist': {'lr': 1e-4}, 'k': 10}
 
 
 def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
@@ -103,7 +103,9 @@ def main(args):
     model_parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                               help='input batch size for training (default: 128)')
     model_parser.add_argument('--hidden', type=int, default=256, metavar='N',
-                              help='number of hidden channels (default: 256)')
+                              help='number of hidden channels')
+    model_parser.add_argument('-k', '--dict-size', type=int, dest='k', metavar='K',
+                              help='number of atoms in dictionary')
     model_parser.add_argument('--lr', type=float, default=None,
                               help='learning rate')
     model_parser.add_argument('--vq_coef', type=float, default=None,
@@ -138,6 +140,7 @@ def main(args):
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
     lr = args.lr or default_hyperparams[args.dataset]['lr']
+    k = args.k or default_hyperparams[args.dataset]['k']
 
     results, save_path = setup_logging_and_results(args)
 
@@ -149,7 +152,7 @@ def main(args):
         cudnn.benchmark = True
         torch.cuda.manual_seed(args.seed)
 
-    model = models[args.dataset][args.model](args.hidden)
+    model = models[args.dataset][args.model](args.hidden, k=k)
     if args.cuda:
         model.cuda()
 
