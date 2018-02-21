@@ -12,15 +12,33 @@ from torchvision.utils import save_image
 from utils.log import setup_logging_and_results
 from vq_vae.auto_encoder import *
 
-models = {'cifar10': {'vae': CVAE,
+models = {'imagenet': {'vqvae': VQ_CVAE},
+          'cifar10': {'vae': CVAE,
                       'vqvae': VQ_CVAE},
           'mnist': {'vae': VAE,
                     'vqvae': VQ_VAE}}
-datasets_classes = {'cifar10': datasets.CIFAR10,
+datasets_classes = {'imagenet': datasets.ImageFolder,
+                    'cifar10': datasets.CIFAR10,
                     'mnist': datasets.MNIST}
-dataset_sizes = {'cifar10': (3, 32, 32),
+dataset_train_args = {'imagenet': {},
+                      'cifar10': {'train': True, 'download': True},
+                      'mnist': {'train': True, 'download': True}}
+dataset_test_args = {'imagenet': {},
+                     'cifar10': {'train': False, 'download': True},
+                     'mnist': {'train': False, 'download': True},
+}
+dataset_sizes = {'imagenet': (3, 256, 224),
+                 'cifar10': (3, 32, 32),
                  'mnist': (1, 28, 28)}
-default_hyperparams = {'cifar10': {'lr': 2e-4, 'k': 10},
+
+dataset_transforms = {'imagenet': transforms.Compose([transforms.Resize(128), transforms.CenterCrop(128),
+                                                      transforms.ToTensor(),
+                                                      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]),
+                      'cifar10': transforms.Compose([transforms.ToTensor(),
+                                                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]),
+                      'mnist': transforms.ToTensor()}
+default_hyperparams = {'imagenet': {'lr': 2e-4, 'k': 512},
+                       'cifar10': {'lr': 2e-4, 'k': 10},
                        'mnist': {'lr': 1e-4}, 'k': 10}
 
 
@@ -51,6 +69,8 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
                          epoch, batch_idx * len(data), len(train_loader.dataset),
                          int(100. * batch_idx / len(train_loader)),
                          loss_string))
+            logging.info('z_e norm: {}'.format(torch.mean(torch.norm(outputs[1].view(256,-1),2,0)).data[0]))
+            logging.info('z_q norm: {}'.format(torch.mean(torch.norm(outputs[2].view(256,-1),2,0)).data[0]))
         if batch_idx == (len(train_loader) - 1):
             save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_train')
 
@@ -68,7 +88,7 @@ def save_reconstructed_images(data, epoch, outputs, save_path, name):
     comparison = torch.cat([data[:n],
                             outputs.view(batch_size, size[1], size[2], size[3])[:n]])
     save_image(comparison.data.cpu(),
-               os.path.join(save_path, name + '_' + str(epoch) + '.png'), nrow=n)
+               os.path.join(save_path, name + '_' + str(epoch) + '.png'), nrow=n, normalize=True)
 
 
 def test_net(epoch, model, test_loader, cuda, save_path):
@@ -116,8 +136,10 @@ def main(args):
                               help='kl-divergence coefficient in loss')
 
     training_parser = parser.add_argument_group('Training Parameters')
-    training_parser.add_argument('--dataset', default='cifar10', choices=['mnist', 'cifar10'],
+    training_parser.add_argument('--dataset', default='cifar10', choices=['mnist', 'cifar10', 'imagenet'],
                                  help='dataset to use: mnist | cifar10')
+    training_parser.add_argument('--data-dir', default='/media/ssd/Datasets',
+                                 help='directory containing the dataset')
     training_parser.add_argument('--epochs', type=int, default=20, metavar='N',
                                  help='number of epochs to train (default: 10)')
     training_parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -159,12 +181,20 @@ def main(args):
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+    dataset_train_dir = os.path.join(args.data_dir, args.dataset)
+    dataset_test_dir = os.path.join(args.data_dir, args.dataset)
+    if 'imagenet' in args.dataset:
+        dataset_train_dir = os.path.join(dataset_train_dir, 'train')
+        dataset_test_dir = os.path.join(dataset_test_dir, 'val')
     train_loader = torch.utils.data.DataLoader(
-        datasets_classes[args.dataset]('../data', train=True, download=True,
-                                       transform=transforms.ToTensor()),
+        datasets_classes[args.dataset](dataset_train_dir,
+                                       transform=dataset_transforms[args.dataset],
+                                       **dataset_train_args[args.dataset]),
         batch_size=args.batch_size, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
-        datasets_classes[args.dataset]('../data', train=False, transform=transforms.ToTensor()),
+        datasets_classes[args.dataset](dataset_test_dir,
+                                       transform=dataset_transforms[args.dataset],
+                                       **dataset_test_args[args.dataset]),
         batch_size=args.batch_size, shuffle=True, **kwargs)
 
     for epoch in range(1, args.epochs + 1):
@@ -172,7 +202,7 @@ def main(args):
         test_losses = test_net(epoch, model, test_loader, args.cuda, save_path)
         sample = model.sample(32)
         save_image(sample.data.view(32, *dataset_sizes[args.dataset]),
-                   os.path.join(save_path, 'sample_' + str(epoch) + '.png'))
+                   os.path.join(save_path, 'sample_' + str(epoch) + '.png'), normalize=True)
 
         results.add(epoch=epoch, **train_losses, **test_losses)
         for k in train_losses:

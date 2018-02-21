@@ -45,7 +45,7 @@ class AbstractAutoEncoder(nn.Module):
 class VAE(nn.Module):
     """Variational AutoEncoder for MNIST
        Taken from pytorch/examples: https://github.com/pytorch/examples/tree/master/vae"""
-    def __init__(self, kl_coef=1, *args):
+    def __init__(self, kl_coef=1, **kwargs):
         super(VAE, self).__init__()
 
         self.fc1 = nn.Linear(784, 400)
@@ -74,7 +74,7 @@ class VAE(nn.Module):
 
     def decode(self, z):
         h3 = self.relu(self.fc3(z))
-        return self.sigmoid(self.fc4(h3))
+        return self.tanh(self.fc4(h3))
 
     def forward(self, x):
         mu, logvar = self.encode(x.view(-1, 784))
@@ -89,7 +89,7 @@ class VAE(nn.Module):
         return sample
 
     def loss_function(self, x, recon_x, mu, logvar):
-        self.bce = F.binary_cross_entropy(recon_x, x.view(-1, 784))
+        self.bce = F.binary_cross_entropy(recon_x, x.view(-1, 784), size_average=False)
         batch_size = x.size(0)
 
         # see Appendix B from VAE paper:
@@ -97,8 +97,6 @@ class VAE(nn.Module):
         # https://arxiv.org/abs/1312.6114
         # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
         self.kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        # Normalise by same number of elements as in reconstruction
-        self.kl /= batch_size * 784
 
         return self.bce + self.kl_coef*self.kl
 
@@ -108,7 +106,7 @@ class VAE(nn.Module):
 
 class VQ_VAE(nn.Module):
     """Vector Quantized AutoEncoder for mnist"""
-    def __init__(self, k=10, vq_coef=0.2, comit_coef=0.4, *args):
+    def __init__(self, k=10, vq_coef=0.2, comit_coef=0.4, **kwargs):
         super(VQ_VAE, self).__init__()
 
         self.emb_size = k
@@ -134,19 +132,20 @@ class VQ_VAE(nn.Module):
 
     def decode(self, z):
         h3 = self.relu(self.fc3(z))
-        return self.sigmoid(self.fc4(h3))
+        return self.tanh(self.fc4(h3))
 
     def forward(self, x):
         z_e = self.encode(x.view(-1, 784))
-        z_q = self.emb(z_e, weight_sg=True).view(-1, 200)
-        emb = self.emb(z_e.detach()).view(-1, 200)
+        z_q, _ = self.emb(z_e, weight_sg=True).view(-1, 200)
+        emb, _ = self.emb(z_e.detach()).view(-1, 200)
         return self.decode(z_q), z_e, emb
 
     def sample(self, size):
         sample = Variable(torch.randn(size, self.emb_size, int(200 / self.emb_size)))
         if self.cuda():
             sample = sample.cuda()
-        sample = self.decode(self.emb(sample).view(-1, 200)).cpu()
+        emb, _ = self.emb(sample)
+        sample = self.decode(emb(sample).view(-1, 200)).cpu()
         return sample
 
     def loss_function(self, x, recon_x, z_e, emb):
@@ -178,26 +177,32 @@ class ResBlock(nn.Module):
 
 
 class CVAE(AbstractAutoEncoder):
-    def __init__(self, d, kl_coef=0.1):
+    def __init__(self, d, kl_coef=0.1, **kwargs):
         super(CVAE, self).__init__()
 
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, d // 2, kernel_size=4, stride=2),
+            nn.Conv2d(3, d // 2, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(d // 2),
             nn.ReLU(inplace=True),
-            nn.Conv2d(d // 2, d, kernel_size=4, stride=2),
+            nn.Conv2d(d // 2, d, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(d),
             nn.ReLU(inplace=True),
-            ResBlock(d, d),
-            ResBlock(d, d),
+            ResBlock(d, d, bn=True),
+            nn.BatchNorm2d(d),
+            ResBlock(d, d, bn=True),
         )
         self.decoder = nn.Sequential(
-            ResBlock(d, d),
-            ResBlock(d, d),
-            nn.ConvTranspose2d(d, d // 2, kernel_size=4, stride=2),
-            nn.ReplicationPad2d((0, 1, 0, 1)),
+            ResBlock(d, d, bn=True),
+            nn.BatchNorm2d(d),
+            ResBlock(d, d, bn=True),
+            nn.BatchNorm2d(d),
+
+            nn.ConvTranspose2d(d, d // 2, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(d//2),
             nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(d // 2, 3, kernel_size=4, stride=2),
+            nn.ConvTranspose2d(d // 2, 3, kernel_size=4, stride=2, padding=1, bias=False),
         )
-        self.f = 6
+        self.f = 8
         self.d = d
         self.fc11 = nn.Linear(d * self.f ** 2, d * self.f ** 2)
         self.fc12 = nn.Linear(d * self.f ** 2, d * self.f ** 2)
@@ -221,7 +226,8 @@ class CVAE(AbstractAutoEncoder):
     def decode(self, z):
         z = z.view(-1, self.d, self.f, self.f)
         h3 = self.decoder(z)
-        return F.sigmoid(h3)
+        return F.tanh(h3)
+        # return F.sigmoid(h3)
 
     def forward(self, x):
         mu, logvar = self.encode(x)
@@ -254,21 +260,27 @@ class CVAE(AbstractAutoEncoder):
 
 
 class VQ_CVAE(nn.Module):
-    def __init__(self, d, k=10, bn=False, vq_coef=1, commit_coef=0.1):
+    def __init__(self, d, k=10, bn=True, vq_coef=1, commit_coef=0.5, **kwargs):
         super(VQ_CVAE, self).__init__()
 
         self.encoder = nn.Sequential(
             nn.Conv2d(3, d, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(d),
             nn.ReLU(inplace=True),
             nn.Conv2d(d, d, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(d),
             nn.ReLU(inplace=True),
             ResBlock(d, d, bn),
+            nn.BatchNorm2d(d),
             ResBlock(d, d, bn),
+            nn.BatchNorm2d(d),
         )
         self.decoder = nn.Sequential(
             ResBlock(d, d),
+            nn.BatchNorm2d(d),
             ResBlock(d, d),
             nn.ConvTranspose2d(d, d, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(d),
             nn.ReLU(inplace=True),
             nn.ConvTranspose2d(d, 3, kernel_size=4, stride=2, padding=1),
         )
@@ -287,6 +299,8 @@ class VQ_CVAE(nn.Module):
                 torch.fmod(l.weight, 0.04)
                 nn.init.constant(l.bias, 0)
 
+        self.encoder[-1].weight.data.fill_(1 / 40)
+
         self.emb.weight.data.normal_(0, 0.02)
         torch.fmod(self.emb.weight, 0.04)
 
@@ -294,19 +308,20 @@ class VQ_CVAE(nn.Module):
         return self.encoder(x)
 
     def decode(self, x):
-        return F.sigmoid(self.decoder(x))
+        return F.tanh(self.decoder(x))
 
     def forward(self, x):
         z_e = self.encode(x)
-        z_q = self.emb(z_e, weight_sg=True)
-        emb = self.emb(z_e.detach())
+        z_q, _ = self.emb(z_e, weight_sg=True)
+        emb, _ = self.emb(z_e.detach())
         return self.decode(z_q), z_e, emb
 
     def sample(self, size):
         sample = Variable(torch.randn(size, self.d, self.f ** 2), requires_grad=False)
         if self.cuda():
             sample = sample.cuda()
-        return self.decode(self.emb(sample).view(size, self.d, self.f, self.f)).cpu()
+        emb, _ = self.emb(sample)
+        return self.decode(emb.view(size, self.d, self.f, self.f)).cpu()
 
     def loss_function(self, x, recon_x, z_e, emb):
         self.mse = F.mse_loss(recon_x, x)

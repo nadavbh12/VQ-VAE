@@ -30,16 +30,16 @@ class NearestEmbedFunc(Function):
         x_expanded = x_reshaped.expand(ctx.batch_size * ctx.num_latents, ctx.emb_dim, ctx.num_emb)
         emb_expanded = emb.unsqueeze(0).expand(ctx.batch_size * ctx.num_latents, ctx.emb_dim, ctx.num_emb)
 
-        dist = torch.sum((x_expanded - emb_expanded).pow(2), dim=1)
+        dist = torch.norm(x_expanded - emb_expanded, 2, 1)
         _, argmin = dist.min(1)
         result = emb.index_select(1, argmin).t()
 
         ctx.argmin = argmin
         # TODO: is the contiguous necessary?
-        return result.contiguous().view(input.size())
+        return result.contiguous().view(input.size()), argmin
 
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx, grad_output, argmin=None):
         grad_input = grad_emb = None
         if ctx.needs_input_grad[0]:
             grad_input = grad_output
@@ -51,7 +51,7 @@ class NearestEmbedFunc(Function):
             for i in range(ctx.num_emb):
                 if torch.sum(ctx.argmin == i):
                     grad_emb[:, i] = torch.mean(grad_output_reshaped[ctx.argmin[ctx.argmin == i], :], 0)
-        return grad_input, grad_emb, None
+        return grad_input, grad_emb, None, None
 
 
 def nearest_embed(x, emb):
