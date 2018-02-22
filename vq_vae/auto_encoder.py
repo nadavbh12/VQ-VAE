@@ -106,13 +106,13 @@ class VAE(nn.Module):
 
 class VQ_VAE(nn.Module):
     """Vector Quantized AutoEncoder for mnist"""
-    def __init__(self, k=10, vq_coef=0.2, comit_coef=0.4, **kwargs):
+    def __init__(self, hidden=200, k=10, vq_coef=0.2, comit_coef=0.4, **kwargs):
         super(VQ_VAE, self).__init__()
 
         self.emb_size = k
         self.fc1 = nn.Linear(784, 400)
-        self.fc2 = nn.Linear(400, 200)
-        self.fc3 = nn.Linear(200, 400)
+        self.fc2 = nn.Linear(400, hidden)
+        self.fc3 = nn.Linear(hidden, 400)
         self.fc4 = nn.Linear(400, 784)
 
         self.emb = NearestEmbed(k, self.emb_size)
@@ -121,6 +121,7 @@ class VQ_VAE(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.vq_coef = vq_coef
         self.comit_coef = comit_coef
+        self.hidden = hidden
         self.ce_loss = 0
         self.vq_loss = 0
         self.commit_loss = 0
@@ -128,7 +129,7 @@ class VQ_VAE(nn.Module):
     def encode(self, x):
         h1 = self.relu(self.fc1(x))
         h2 = self.fc2(h1)
-        return h2.view(-1, self.emb_size, int(200 / self.emb_size))
+        return h2.view(-1, self.emb_size, int(self.hidden / self.emb_size))
 
     def decode(self, z):
         h3 = self.relu(self.fc3(z))
@@ -136,16 +137,16 @@ class VQ_VAE(nn.Module):
 
     def forward(self, x):
         z_e = self.encode(x.view(-1, 784))
-        z_q, _ = self.emb(z_e, weight_sg=True).view(-1, 200)
-        emb, _ = self.emb(z_e.detach()).view(-1, 200)
+        z_q, _ = self.emb(z_e, weight_sg=True).view(-1, self.hidden)
+        emb, _ = self.emb(z_e.detach()).view(-1, self.hidden)
         return self.decode(z_q), z_e, emb
 
     def sample(self, size):
-        sample = Variable(torch.randn(size, self.emb_size, int(200 / self.emb_size)))
+        sample = Variable(torch.randn(size, self.emb_size, int(self.hidden / self.emb_size)))
         if self.cuda():
             sample = sample.cuda()
         emb, _ = self.emb(sample)
-        sample = self.decode(emb(sample).view(-1, 200)).cpu()
+        sample = self.decode(emb(sample).view(-1, self.hidden)).cpu()
         return sample
 
     def loss_function(self, x, recon_x, z_e, emb):
@@ -260,11 +261,11 @@ class CVAE(AbstractAutoEncoder):
 
 
 class VQ_CVAE(nn.Module):
-    def __init__(self, d, k=10, bn=True, vq_coef=1, commit_coef=0.5, **kwargs):
+    def __init__(self, d, k=10, bn=True, vq_coef=1, commit_coef=0.5, num_channels=3, **kwargs):
         super(VQ_CVAE, self).__init__()
 
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, d, kernel_size=4, stride=2, padding=1),
+            nn.Conv2d(num_channels, d, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(d),
             nn.ReLU(inplace=True),
             nn.Conv2d(d, d, kernel_size=4, stride=2, padding=1),
@@ -282,7 +283,7 @@ class VQ_CVAE(nn.Module):
             nn.ConvTranspose2d(d, d, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(d),
             nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(d, 3, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(d, num_channels, kernel_size=4, stride=2, padding=1),
         )
         self.f = 8
         self.d = d

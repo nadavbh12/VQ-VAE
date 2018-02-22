@@ -37,9 +37,9 @@ dataset_transforms = {'imagenet': transforms.Compose([transforms.Resize(128), tr
                       'cifar10': transforms.Compose([transforms.ToTensor(),
                                                      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]),
                       'mnist': transforms.ToTensor()}
-default_hyperparams = {'imagenet': {'lr': 2e-4, 'k': 512},
-                       'cifar10': {'lr': 2e-4, 'k': 10},
-                       'mnist': {'lr': 1e-4}, 'k': 10}
+default_hyperparams = {'imagenet': {'lr': 2e-4, 'k': 512, 'hidden': 512},
+                       'cifar10': {'lr': 2e-4, 'k': 10, 'hidden': 256},
+                       'mnist': {'lr': 1e-4, 'k': 10, 'hidden': 64}}
 
 
 def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
@@ -122,7 +122,7 @@ def main(args):
                               help='autoencoder variant to use: vae | vqvae')
     model_parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                               help='input batch size for training (default: 128)')
-    model_parser.add_argument('--hidden', type=int, default=256, metavar='N',
+    model_parser.add_argument('--hidden', type=int, metavar='N',
                               help='number of hidden channels')
     model_parser.add_argument('-k', '--dict-size', type=int, dest='k', metavar='K',
                               help='number of atoms in dictionary')
@@ -163,6 +163,8 @@ def main(args):
 
     lr = args.lr or default_hyperparams[args.dataset]['lr']
     k = args.k or default_hyperparams[args.dataset]['k']
+    hidden = args.hidden or default_hyperparams[args.dataset]['hidden']
+    num_channels = dataset_sizes[args.dataset][0]
 
     results, save_path = setup_logging_and_results(args)
 
@@ -174,7 +176,7 @@ def main(args):
         cudnn.benchmark = True
         torch.cuda.manual_seed(args.seed)
 
-    model = models[args.dataset][args.model](args.hidden, k=k)
+    model = models[args.dataset][args.model](hidden, k=k, num_channels=num_channels)
     if args.cuda:
         model.cuda()
 
