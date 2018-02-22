@@ -42,78 +42,6 @@ default_hyperparams = {'imagenet': {'lr': 2e-4, 'k': 512, 'hidden': 512},
                        'mnist': {'lr': 1e-4, 'k': 10, 'hidden': 64}}
 
 
-def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
-    model.train()
-    loss_dict = model.latest_losses()
-    losses = {k + '_train': 0 for k, v in loss_dict.items()}
-    epoch_losses = {k + '_train': 0 for k, v in loss_dict.items()}
-    for batch_idx, (data, _) in enumerate(train_loader):
-        data = Variable(data)
-        if cuda:
-            data = data.cuda()
-        optimizer.zero_grad()
-        outputs = model(data)
-        loss = model.loss_function(data, *outputs)
-        loss.backward()
-        optimizer.step()
-        latest_losses = model.latest_losses()
-        for key in latest_losses:
-            losses[key + '_train'] += latest_losses[key].data[0]
-            epoch_losses[key + '_train'] += latest_losses[key].data[0]
-
-        if batch_idx % log_interval == 0:
-            for key in latest_losses:
-                losses[key + '_train'] /= log_interval
-            loss_string = ' '.join(['{}: {:.6f}'.format(k, v) for k, v in losses.items()])
-            logging.info('Train Epoch: {} [{:5d}/{} ({:2d}%)]\t{}'.format(
-                         epoch, batch_idx * len(data), len(train_loader.dataset),
-                         int(100. * batch_idx / len(train_loader)),
-                         loss_string))
-            logging.info('z_e norm: {}'.format(torch.mean(torch.norm(outputs[1].view(256,-1),2,0)).data[0]))
-            logging.info('z_q norm: {}'.format(torch.mean(torch.norm(outputs[2].view(256,-1),2,0)).data[0]))
-        if batch_idx == (len(train_loader) - 1):
-            save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_train')
-
-    for key in epoch_losses:
-        epoch_losses[key] /= len(train_loader.dataset)
-    loss_string = '\t'.join(['{}: {:.6f}'.format(k, v) for k, v in epoch_losses.items()])
-    logging.info('====> Epoch: {} {}'.format(epoch, loss_string))
-    return epoch_losses
-
-
-def save_reconstructed_images(data, epoch, outputs, save_path, name):
-    size = data.size()
-    n = min(data.size(0), 8)
-    batch_size = data.size(0)
-    comparison = torch.cat([data[:n],
-                            outputs.view(batch_size, size[1], size[2], size[3])[:n]])
-    save_image(comparison.data.cpu(),
-               os.path.join(save_path, name + '_' + str(epoch) + '.png'), nrow=n, normalize=True)
-
-
-def test_net(epoch, model, test_loader, cuda, save_path):
-    model.eval()
-    loss_dict = model.latest_losses()
-    losses = {k + '_test': 0 for k, v in loss_dict.items()}
-    for i, (data, _) in enumerate(test_loader):
-        if cuda:
-            data = data.cuda()
-        data = Variable(data, volatile=True)
-        outputs = model(data)
-        model.loss_function(data, *outputs)
-        latest_losses = model.latest_losses()
-        for key in latest_losses:
-            losses[key + '_test'] += latest_losses[key].data[0]
-        if i == 0:
-            save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_test')
-
-    for key in losses:
-        losses[key] /= len(test_loader.dataset)
-    loss_string = ' '.join(['{}: {:.6f}'.format(k, v) for k, v in losses.items()])
-    logging.info('====> Test set losses: {}'.format(loss_string))
-    return losses
-
-
 def main(args):
     parser = argparse.ArgumentParser(description='Variational AutoEncoders')
 
@@ -211,6 +139,78 @@ def main(args):
             key = k[:-6]
             results.plot(x='epoch', y=[key + '_train', key + '_test'])
         results.save()
+
+
+def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
+    model.train()
+    loss_dict = model.latest_losses()
+    losses = {k + '_train': 0 for k, v in loss_dict.items()}
+    epoch_losses = {k + '_train': 0 for k, v in loss_dict.items()}
+    for batch_idx, (data, _) in enumerate(train_loader):
+        data = Variable(data)
+        if cuda:
+            data = data.cuda()
+        optimizer.zero_grad()
+        outputs = model(data)
+        loss = model.loss_function(data, *outputs)
+        loss.backward()
+        optimizer.step()
+        latest_losses = model.latest_losses()
+        for key in latest_losses:
+            losses[key + '_train'] += latest_losses[key].data[0]
+            epoch_losses[key + '_train'] += latest_losses[key].data[0]
+
+        if batch_idx % log_interval == 0:
+            for key in latest_losses:
+                losses[key + '_train'] /= log_interval
+            loss_string = ' '.join(['{}: {:.6f}'.format(k, v) for k, v in losses.items()])
+            logging.info('Train Epoch: {} [{:5d}/{} ({:2d}%)]\t{}'.format(
+                         epoch, batch_idx * len(data), len(train_loader.dataset),
+                         int(100. * batch_idx / len(train_loader)),
+                         loss_string))
+            logging.info('z_e norm: {}'.format(torch.mean(torch.norm(outputs[1].view(256,-1),2,0)).data[0]))
+            logging.info('z_q norm: {}'.format(torch.mean(torch.norm(outputs[2].view(256,-1),2,0)).data[0]))
+        if batch_idx == (len(train_loader) - 1):
+            save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_train')
+
+    for key in epoch_losses:
+        epoch_losses[key] /= len(train_loader.dataset)
+    loss_string = '\t'.join(['{}: {:.6f}'.format(k, v) for k, v in epoch_losses.items()])
+    logging.info('====> Epoch: {} {}'.format(epoch, loss_string))
+    return epoch_losses
+
+
+def save_reconstructed_images(data, epoch, outputs, save_path, name):
+    size = data.size()
+    n = min(data.size(0), 8)
+    batch_size = data.size(0)
+    comparison = torch.cat([data[:n],
+                            outputs.view(batch_size, size[1], size[2], size[3])[:n]])
+    save_image(comparison.data.cpu(),
+               os.path.join(save_path, name + '_' + str(epoch) + '.png'), nrow=n, normalize=True)
+
+
+def test_net(epoch, model, test_loader, cuda, save_path):
+    model.eval()
+    loss_dict = model.latest_losses()
+    losses = {k + '_test': 0 for k, v in loss_dict.items()}
+    for i, (data, _) in enumerate(test_loader):
+        if cuda:
+            data = data.cuda()
+        data = Variable(data, volatile=True)
+        outputs = model(data)
+        model.loss_function(data, *outputs)
+        latest_losses = model.latest_losses()
+        for key in latest_losses:
+            losses[key + '_test'] += latest_losses[key].data[0]
+        if i == 0:
+            save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_test')
+
+    for key in losses:
+        losses[key] /= len(test_loader.dataset)
+    loss_string = ' '.join(['{}: {:.6f}'.format(k, v) for k, v in losses.items()])
+    logging.info('====> Test set losses: {}'.format(loss_string))
+    return losses
 
 
 if __name__ == "__main__":
