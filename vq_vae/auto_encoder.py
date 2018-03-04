@@ -228,7 +228,6 @@ class CVAE(AbstractAutoEncoder):
         z = z.view(-1, self.d, self.f, self.f)
         h3 = self.decoder(z)
         return F.tanh(h3)
-        # return F.sigmoid(h3)
 
     def forward(self, x):
         mu, logvar = self.encode(x)

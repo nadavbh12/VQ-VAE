@@ -36,7 +36,7 @@ class NearestEmbedFunc(Function):
 
         ctx.argmin = argmin
         # TODO: is the contiguous necessary?
-        return result.contiguous().view(input.size()), argmin
+        return result.contiguous().view(input.size()), argmin.view(ctx.batch_size, *input.size()[2:])
 
     @staticmethod
     def backward(ctx, grad_output, argmin=None):
