@@ -26,7 +26,7 @@ class NearestEmbedFunc(Function):
         ctx.input_type = type(input)
 
         # find nearest neighbors
-        x_reshaped = input.view(ctx.batch_size * ctx.num_latents, ctx.emb_dim, 1)
+        x_reshaped = input.permute(0, 2, 3, 1).contiguous().view(ctx.batch_size * ctx.num_latents, ctx.emb_dim, 1)
         x_expanded = x_reshaped.expand(ctx.batch_size * ctx.num_latents, ctx.emb_dim, ctx.num_emb)
         emb_expanded = emb.unsqueeze(0).expand(ctx.batch_size * ctx.num_latents, ctx.emb_dim, ctx.num_emb)
 
@@ -35,8 +35,8 @@ class NearestEmbedFunc(Function):
         result = emb.index_select(1, argmin).t()
 
         ctx.argmin = argmin
-        # TODO: is the contiguous necessary?
-        return result.contiguous().view(input.size()), argmin.view(ctx.batch_size, *input.size()[2:])
+        return result.contiguous().view(ctx.batch_size, *input.size()[2:], input.size(1)).permute(0, 3, 1, 2).contiguous(), \
+               argmin.view(ctx.batch_size, *input.size()[2:])
 
     @staticmethod
     def backward(ctx, grad_output, argmin=None):
