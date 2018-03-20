@@ -24,9 +24,11 @@ class NearestEmbedFunc(Function):
         ctx.emb_dim = emb.size(0)
         ctx.num_emb = emb.size(1)
         ctx.input_type = type(input)
+        dims = list(range(len(input.size())))
 
         # find nearest neighbors
-        x_reshaped = input.permute(0, 2, 3, 1).contiguous().view(ctx.batch_size * ctx.num_latents, ctx.emb_dim, 1)
+        # TODO: replace with broadcasting
+        x_reshaped = input.permute(0, *dims[2:], 1).contiguous().view(ctx.batch_size * ctx.num_latents, ctx.emb_dim, 1)
         x_expanded = x_reshaped.expand(ctx.batch_size * ctx.num_latents, ctx.emb_dim, ctx.num_emb)
         emb_expanded = emb.unsqueeze(0).expand(ctx.batch_size * ctx.num_latents, ctx.emb_dim, ctx.num_emb)
 
@@ -35,7 +37,7 @@ class NearestEmbedFunc(Function):
         result = emb.index_select(1, argmin).t()
 
         ctx.argmin = argmin
-        return result.contiguous().view(ctx.batch_size, *input.size()[2:], input.size(1)).permute(0, 3, 1, 2).contiguous(), \
+        return result.contiguous().view(ctx.batch_size, *input.size()[2:], input.size(1)).permute(0, dims[-1], *dims[1:-1]).contiguous(), \
                argmin.view(ctx.batch_size, *input.size()[2:])
 
     @staticmethod
