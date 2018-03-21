@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import logging
 import argparse
 
@@ -146,6 +147,7 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
     loss_dict = model.latest_losses()
     losses = {k + '_train': 0 for k, v in loss_dict.items()}
     epoch_losses = {k + '_train': 0 for k, v in loss_dict.items()}
+    start_time = time.time()
     for batch_idx, (data, _) in enumerate(train_loader):
         data = Variable(data)
         if cuda:
@@ -164,12 +166,15 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
             for key in latest_losses:
                 losses[key + '_train'] /= log_interval
             loss_string = ' '.join(['{}: {:.6f}'.format(k, v) for k, v in losses.items()])
-            logging.info('Train Epoch: {} [{:5d}/{} ({:2d}%)]\t{}'.format(
-                         epoch, batch_idx * len(data), len(train_loader.dataset),
-                         int(100. * batch_idx / len(train_loader)),
-                         loss_string))
-            logging.info('z_e norm: {}'.format(torch.mean(torch.norm(outputs[1].view(256,-1),2,0)).data[0]))
-            logging.info('z_q norm: {}'.format(torch.mean(torch.norm(outputs[2].view(256,-1),2,0)).data[0]))
+            logging.info('Train Epoch: {epoch} [{batch:5d}/{total_batch} ({percent:2d}%)]   time:'
+                         ' {time:3.2f}   {loss}'
+                         .format(epoch=epoch, batch=batch_idx * len(data), total_batch=len(train_loader) * len(data),
+                                 percent=int(100. * batch_idx / len(train_loader)),
+                                 time=time.time() - start_time,
+                                 loss=loss_string))
+            start_time = time.time()
+            # logging.info('z_e norm: {}'.format(torch.mean(torch.norm(outputs[1].view(256,-1), 2, 0)).data[0]))
+            # logging.info('z_q norm: {}'.format(torch.mean(torch.norm(outputs[2].view(256,-1), 2, 0)).data[0]))
         if batch_idx == (len(train_loader) - 1):
             save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_train')
 
@@ -178,16 +183,6 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path):
     loss_string = '\t'.join(['{}: {:.6f}'.format(k, v) for k, v in epoch_losses.items()])
     logging.info('====> Epoch: {} {}'.format(epoch, loss_string))
     return epoch_losses
-
-
-def save_reconstructed_images(data, epoch, outputs, save_path, name):
-    size = data.size()
-    n = min(data.size(0), 8)
-    batch_size = data.size(0)
-    comparison = torch.cat([data[:n],
-                            outputs.view(batch_size, size[1], size[2], size[3])[:n]])
-    save_image(comparison.data.cpu(),
-               os.path.join(save_path, name + '_' + str(epoch) + '.png'), nrow=n, normalize=True)
 
 
 def test_net(epoch, model, test_loader, cuda, save_path):
@@ -211,6 +206,16 @@ def test_net(epoch, model, test_loader, cuda, save_path):
     loss_string = ' '.join(['{}: {:.6f}'.format(k, v) for k, v in losses.items()])
     logging.info('====> Test set losses: {}'.format(loss_string))
     return losses
+
+
+def save_reconstructed_images(data, epoch, outputs, save_path, name):
+    size = data.size()
+    n = min(data.size(0), 8)
+    batch_size = data.size(0)
+    comparison = torch.cat([data[:n],
+                            outputs.view(batch_size, size[1], size[2], size[3])[:n]])
+    save_image(comparison.data.cpu(),
+               os.path.join(save_path, name + '_' + str(epoch) + '.png'), nrow=n, normalize=True)
 
 
 if __name__ == "__main__":
