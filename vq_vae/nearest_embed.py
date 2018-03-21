@@ -24,21 +24,24 @@ class NearestEmbedFunc(Function):
         ctx.emb_dim = emb.size(0)
         ctx.num_emb = emb.size(1)
         ctx.input_type = type(input)
-        dims = list(range(len(input.size())))
+        ctx.dims = list(range(len(input.size())))
+
+        # expand so it broadcastable
+        x_expanded = input.unsqueeze(-1)
+        num_arbitrary_dims = len(ctx.dims) - 2
+        if num_arbitrary_dims:
+            emb_expanded = emb.view(emb.shape[0], *([1] * num_arbitrary_dims), emb.shape[1])
+        else:
+            emb_expanded = emb
 
         # find nearest neighbors
-        # TODO: replace with broadcasting
-        x_reshaped = input.permute(0, *dims[2:], 1).contiguous().view(ctx.batch_size * ctx.num_latents, ctx.emb_dim, 1)
-        x_expanded = x_reshaped.expand(ctx.batch_size * ctx.num_latents, ctx.emb_dim, ctx.num_emb)
-        emb_expanded = emb.unsqueeze(0).expand(ctx.batch_size * ctx.num_latents, ctx.emb_dim, ctx.num_emb)
-
         dist = torch.norm(x_expanded - emb_expanded, 2, 1)
-        _, argmin = dist.min(1)
-        result = emb.index_select(1, argmin).t()
+        _, argmin = dist.min(-1)
+        shifted_shape = [input.shape[0], *list(input.shape[2:]) ,input.shape[1]]
+        result = emb.t().index_select(0, argmin.view(-1)).view(shifted_shape).permute(0, ctx.dims[-1], *ctx.dims[1:-1])
 
         ctx.argmin = argmin
-        return result.contiguous().view(ctx.batch_size, *input.size()[2:], input.size(1)).permute(0, dims[-1], *dims[1:-1]).contiguous(), \
-               argmin.view(ctx.batch_size, *input.size()[2:])
+        return result.contiguous(), argmin
 
     @staticmethod
     def backward(ctx, grad_output, argmin=None):
@@ -48,11 +51,14 @@ class NearestEmbedFunc(Function):
 
         if ctx.needs_input_grad[1]:
             grad_emb = Variable(grad_output.data.new(ctx.emb_dim, ctx.num_emb).type(ctx.input_type).zero_())
-            grad_output_reshaped = grad_output.contiguous().view(ctx.batch_size * ctx.num_latents, ctx.emb_dim)
-            # TODO: replace for loop
+            grad_output_reshaped = grad_output.permute(0, *ctx.dims[2:], 1).contiguous().view(ctx.batch_size * ctx.num_latents, ctx.emb_dim)
+            argmin_flat = ctx.argmin.view(-1)
+            # TODO: replace for loop, use masked operations
             for i in range(ctx.num_emb):
                 if torch.sum(ctx.argmin == i):
-                    grad_emb[:, i] = torch.mean(grad_output_reshaped[ctx.argmin[ctx.argmin == i], :], 0)
+                    indices_chosen_atom_i = torch.nonzero(argmin_flat == i)
+                    gradients_of_latents_chosen_atom_i = grad_output_reshaped[indices_chosen_atom_i, :]
+                    grad_emb[:, i] = torch.mean(gradients_of_latents_chosen_atom_i, 0)
         return grad_input, grad_emb, None, None
 
 
