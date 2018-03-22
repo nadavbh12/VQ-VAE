@@ -15,12 +15,21 @@ python main.py
  - Additional requirements in requirements.txt
 
 # Results
+All images are taken from the test set.
+Top row is the original image. Bottom row is the reconstruction.
+
+k - number of elements in the dictionary. d - dimension of elements in the dictionary (number of channels in bottleneck).
 
  - MNIST (k=10, d=64)
+ 
  ![mnist](/images/mnist.png)
- -CIFAR10 (k=128, d=256)
+ 
+ - CIFAR10 (k=128, d=256)
+ 
  ![CIFAR10](/images/cifar10.png)
- -Imagenet (k=512, d=128)
+ 
+ - Imagenet (k=512, d=128)
+ 
  ![imagenet](/images/imagenet.png)
 
 
