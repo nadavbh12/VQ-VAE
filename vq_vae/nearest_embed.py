@@ -51,7 +51,7 @@ class NearestEmbedFunc(Function):
 
         if ctx.needs_input_grad[1]:
             latent_indices = torch.arange(ctx.num_emb).type_as(ctx.argmin)
-            idx_choices = (ctx.argmin.view(-1, 1) == latent_indices.view(1, -1)).type_as(grad_output)
+            idx_choices = (ctx.argmin.view(-1, 1) == latent_indices.view(1, -1)).type_as(grad_output.data)
             n_idx_choice = idx_choices.sum(0)
             n_idx_choice[n_idx_choice == 0] = 1
             idx_avg_choices = idx_choices / n_idx_choice
