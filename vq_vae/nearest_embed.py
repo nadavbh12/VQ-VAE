@@ -50,15 +50,15 @@ class NearestEmbedFunc(Function):
             grad_input = grad_output
 
         if ctx.needs_input_grad[1]:
-            grad_emb = Variable(grad_output.data.new(ctx.emb_dim, ctx.num_emb).type(ctx.input_type).zero_())
-            grad_output_reshaped = grad_output.permute(0, *ctx.dims[2:], 1).contiguous().view(ctx.batch_size * ctx.num_latents, ctx.emb_dim)
-            argmin_flat = ctx.argmin.view(-1)
-            # TODO: replace for loop, use masked operations
-            for i in range(ctx.num_emb):
-                if torch.sum(ctx.argmin == i):
-                    indices_chosen_atom_i = torch.nonzero(argmin_flat == i)
-                    gradients_of_latents_chosen_atom_i = grad_output_reshaped[indices_chosen_atom_i, :]
-                    grad_emb[:, i] = torch.mean(gradients_of_latents_chosen_atom_i, 0)
+            latent_indices = torch.arange(ctx.num_emb).type_as(ctx.argmin)
+            idx_choices = (ctx.argmin.view(-1, 1) == latent_indices.view(1, -1)).type_as(grad_output.data)
+            n_idx_choice = idx_choices.sum(0)
+            n_idx_choice[n_idx_choice == 0] = 1
+            idx_avg_choices = idx_choices / n_idx_choice
+            grad_output = grad_output.permute(0, *ctx.dims[2:], 1).contiguous()
+            grad_output = grad_output.view(ctx.batch_size * ctx.num_latents, ctx.emb_dim)
+            grad_emb = Variable(torch.sum(
+                grad_output.data.view(-1, ctx.emb_dim, 1) * idx_avg_choices.view(-1, 1, ctx.num_emb), 0))
         return grad_input, grad_emb, None, None
 
 
