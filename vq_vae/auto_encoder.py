@@ -1,6 +1,8 @@
 from __future__ import print_function
 import abc
 
+import numpy as np
+import logging
 import torch
 import torch.utils.data
 from torch import nn
@@ -284,13 +286,12 @@ class VQ_CVAE(nn.Module):
             nn.ReLU(inplace=True),
             nn.ConvTranspose2d(d, num_channels, kernel_size=4, stride=2, padding=1),
         )
-        self.f = 8
         self.d = d
         self.emb = NearestEmbed(k, d)
         self.vq_coef = vq_coef
         self.commit_coef = commit_coef
         self.mse = 0
-        self.vq_loss = 0
+        self.vq_loss = Variable(torch.zeros(1))
         self.commit_loss = 0
 
         for l in self.modules():
@@ -312,18 +313,19 @@ class VQ_CVAE(nn.Module):
 
     def forward(self, x):
         z_e = self.encode(x)
-        z_q, _ = self.emb(z_e, weight_sg=True)
+        self.f = z_e.shape[-1]
+        z_q, argmin = self.emb(z_e, weight_sg=True)
         emb, _ = self.emb(z_e.detach())
-        return self.decode(z_q), z_e, emb
+        return self.decode(z_q), z_e, emb, argmin
 
     def sample(self, size):
-        sample = Variable(torch.randn(size, self.d, self.f ** 2), requires_grad=False)
+        sample = Variable(torch.randn(size, self.d, self.f, self.f), requires_grad=False)
         if self.cuda():
             sample = sample.cuda()
         emb, _ = self.emb(sample)
         return self.decode(emb.view(size, self.d, self.f, self.f)).cpu()
 
-    def loss_function(self, x, recon_x, z_e, emb):
+    def loss_function(self, x, recon_x, z_e, emb, argmin):
         self.mse = F.mse_loss(recon_x, x)
 
         self.vq_loss = torch.mean(torch.norm((emb - z_e.detach())**2, 2, 1))
@@ -333,3 +335,10 @@ class VQ_CVAE(nn.Module):
 
     def latest_losses(self):
         return {'mse': self.mse, 'vq': self.vq_loss, 'commitment': self.commit_loss}
+
+    def print_atom_hist(self, argmin):
+
+        argmin = argmin.data.cpu().numpy()
+        unique, counts = np.unique(argmin, return_counts=True)
+        logging.info(counts)
+        logging.info(unique)

@@ -19,45 +19,10 @@ from vq_vae.nearest_embed import nearest_embed
 
 
 class NearestEmbed2dTest(unittest.TestCase):
-    def test_something(self):
+
+    def test_single_embedding(self):
         # inputs
-        emb = Variable(torch.eye(5, 5).double(), requires_grad=True)
-        a = np.array(([[[0.9, 0.0, 0.0, 0.0, 0.0],
-                        [0.0, 0.8, 0.0, 0.0, 0.0]],
-                       [[0.0, 0.0, 0.7, 0.0, 0.0],
-                        [0.0, 0.0, 0.0, 0.6, 0.0]]]), dtype=np.double).reshape((2, 5, 2))
-
-        # expected results
-        result = np.array(([[[1., 0., 0., 0., 0.],
-                             [0., 1., 0., 0., 0.]],
-                            [[0., 0., 1., 0., 0.],
-                             [0., 0., 0., 1., 0.]]]), dtype=np.double).reshape((2, 5, 2))
-        grad_input = np.array(([[[1., 0., 0., 0., 0.],
-                                 [0., 1., 0., 0., 0.]],
-                                [[0., 0., 1., 0., 0.],
-                                 [0., 0., 0., 1., 0.]]]), dtype=np.double).reshape((2, 5, 2))
-        grad_emb = np.array(([[1., 0., 0., 0., 0.],
-                              [0., 1., 0., 0., 0.],
-                              [0., 0., 1., 0., 0.],
-                              [0., 0., 0., 1., 0.],
-                              [0., 0., 0., 0., 0.]]), dtype=np.double)
-
-        grad_input = torch.from_numpy(grad_input).double()
-        grad_emb = torch.from_numpy(grad_emb).double()
-
-        input = Variable(torch.from_numpy(a).double(), requires_grad=True)
-        z_q, _ = nearest_embed(input, emb)
-
-        (0.5 * z_q.pow(2)).sum().backward(retain_graph=True)
-        result = torch.from_numpy(result)
-
-        self.assertEqual(True, torch.equal(z_q.data, result))
-        self.assertEqual(True, torch.equal(input.grad.data, grad_input))
-        self.assertEqual(True, torch.equal(emb.grad.data, grad_emb))
-
-    def test_multiple_same_embedding(self):
-        # inputs
-        emb = Variable(torch.eye(5, 7).double(), requires_grad=True)
+        emb = Variable(torch.eye(5, 7).float(), requires_grad=True)
 
         a = np.array([[[0.9, 0. ],
                        [0. , 0. ],
@@ -69,7 +34,7 @@ class NearestEmbed2dTest(unittest.TestCase):
                        [0. , 0. ],
                        [0. , 0. ],
                        [0.6, 0. ],
-                       [0. , 0. ]]], dtype=np.double)
+                       [0. , 0. ]]], dtype=np.float32)
 
         # expected results
         out = np.array([[[1. , 0.],
@@ -82,7 +47,7 @@ class NearestEmbed2dTest(unittest.TestCase):
                          [0. , 0.],
                          [0. , 0.],
                          [1. , 0.],
-                         [0. , 0.]]], dtype=np.double)
+                         [0. , 0.]]], dtype=np.float32)
 
         grad_input = np.array([[[1. , 0.],
                                 [0. , 0.],
@@ -94,18 +59,18 @@ class NearestEmbed2dTest(unittest.TestCase):
                                 [0. , 0.],
                                 [0. , 0.],
                                 [1. , 0.],
-                                [0. , 0.]]], dtype=np.double)
+                                [0. , 0.]]], dtype=np.float32)
 
         grad_emb = np.array([[1. , 0., 0., 0. , 0., 0., 0.],
                              [0. , 0., 0., 0. , 0., 0., 0.],
                              [0. , 0., 1., 0. , 0., 0., 0.],
                              [0. , 0., 0., 1. , 0., 0., 0.],
-                             [0. , 0., 0., 0. , 0., 0., 0.]], dtype=np.double)
+                             [0. , 0., 0., 0. , 0., 0., 0.]], dtype=np.float32)
 
-        grad_input = torch.from_numpy(grad_input).double()
-        grad_emb = torch.from_numpy(grad_emb).double()
+        grad_input = torch.from_numpy(grad_input).float()
+        grad_emb = torch.from_numpy(grad_emb).float()
 
-        input = Variable(torch.from_numpy(a).double(), requires_grad=True)
+        input = Variable(torch.from_numpy(a).float(), requires_grad=True)
         z_q, _ = nearest_embed(input, emb)
 
         (0.5 * z_q.pow(2)).sum().backward(retain_graph=True)
