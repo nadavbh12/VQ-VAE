@@ -69,7 +69,7 @@ class VAE(nn.Module):
     def reparameterize(self, mu, logvar):
         if self.training:
             std = logvar.mul(0.5).exp_()
-            eps = Variable(std.data.new(std.size()).normal_())
+            eps = Variable(std.new(std.size()).normal_())
             return eps.mul(std).add_(mu)
         else:
             return mu
@@ -221,7 +221,7 @@ class CVAE(AbstractAutoEncoder):
     def reparameterize(self, mu, logvar):
         if self.training:
             std = logvar.mul(0.5).exp_()
-            eps = Variable(std.data.new(std.size()).normal_())
+            eps = Variable(std.new(std.size()).normal_())
             return eps.mul(std).add_(mu)
         else:
             return mu
@@ -296,13 +296,13 @@ class VQ_CVAE(nn.Module):
 
         for l in self.modules():
             if isinstance(l, nn.Linear) or isinstance(l, nn.Conv2d):
-                l.weight.data.normal_(0, 0.02)
+                l.weight.detach().normal_(0, 0.02)
                 torch.fmod(l.weight, 0.04)
-                nn.init.constant(l.bias, 0)
+                nn.init.constant_(l.bias, 0)
 
-        self.encoder[-1].weight.data.fill_(1 / 40)
+        self.encoder[-1].weight.detach().fill_(1 / 40)
 
-        self.emb.weight.data.normal_(0, 0.02)
+        self.emb.weight.detach().normal_(0, 0.02)
         torch.fmod(self.emb.weight, 0.04)
 
     def encode(self, x):
@@ -338,7 +338,7 @@ class VQ_CVAE(nn.Module):
 
     def print_atom_hist(self, argmin):
 
-        argmin = argmin.data.cpu().numpy()
+        argmin = argmin.detach().cpu().numpy()
         unique, counts = np.unique(argmin, return_counts=True)
         logging.info(counts)
         logging.info(unique)

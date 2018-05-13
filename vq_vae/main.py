@@ -148,7 +148,6 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path, 
     start_time = time.time()
     batch_idx, data = None, None
     for batch_idx, (data, _) in enumerate(train_loader):
-        data = Variable(data)
         if cuda:
             data = data.cuda()
         optimizer.zero_grad()
@@ -158,8 +157,8 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path, 
         optimizer.step()
         latest_losses = model.latest_losses()
         for key in latest_losses:
-            losses[key + '_train'] += latest_losses[key].data[0]
-            epoch_losses[key + '_train'] += latest_losses[key].data[0]
+            losses[key + '_train'] += float(latest_losses[key])
+            epoch_losses[key + '_train'] += float(latest_losses[key])
 
         if batch_idx % log_interval == 0:
             for key in latest_losses:
@@ -172,8 +171,8 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path, 
                                  time=time.time() - start_time,
                                  loss=loss_string))
             start_time = time.time()
-            # logging.info('z_e norm: {}'.format(torch.mean(torch.norm(outputs[1].contiguous().view(256,-1),2,0)).data[0]))
-            # logging.info('z_q norm: {}'.format(torch.mean(torch.norm(outputs[2].contiguous().view(256,-1),2,0)).data[0]))
+            # logging.info('z_e norm: {}'.format(float(torch.mean(torch.norm(outputs[1].contiguous().view(256,-1),2,0)))))
+            # logging.info('z_q norm: {}'.format(float(torch.mean(torch.norm(outputs[2].contiguous().view(256,-1),2,0)))))
             for key in latest_losses:
                 losses[key + '_train'] = 0
         if batch_idx == (len(train_loader) - 1):
@@ -197,19 +196,19 @@ def test_net(epoch, model, test_loader, cuda, save_path, args):
     loss_dict = model.latest_losses()
     losses = {k + '_test': 0 for k, v in loss_dict.items()}
     i, data = None, None
-    for i, (data, _) in enumerate(test_loader):
-        if cuda:
-            data = data.cuda()
-        data = Variable(data, volatile=True)
-        outputs = model(data)
-        model.loss_function(data, *outputs)
-        latest_losses = model.latest_losses()
-        for key in latest_losses:
-            losses[key + '_test'] += latest_losses[key].data[0]
-        if i == 0:
-            save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_test')
-        if args.dataset == 'imagenet' and i * len(data) > 1000:
-            break
+    with torch.no_grad():
+        for i, (data, _) in enumerate(test_loader):
+            if cuda:
+                data = data.cuda()
+            outputs = model(data)
+            model.loss_function(data, *outputs)
+            latest_losses = model.latest_losses()
+            for key in latest_losses:
+                losses[key + '_test'] += float(latest_losses[key])
+            if i == 0:
+                save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_test')
+            if args.dataset == 'imagenet' and i * len(data) > 1000:
+                break
 
     for key in losses:
         if args.dataset != 'imagenet':
@@ -227,7 +226,7 @@ def save_reconstructed_images(data, epoch, outputs, save_path, name):
     batch_size = data.size(0)
     comparison = torch.cat([data[:n],
                             outputs.view(batch_size, size[1], size[2], size[3])[:n]])
-    save_image(comparison.data.cpu(),
+    save_image(comparison.cpu(),
                os.path.join(save_path, name + '_' + str(epoch) + '.png'), nrow=n, normalize=True)
 
 
