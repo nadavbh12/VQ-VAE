@@ -11,7 +11,7 @@ python main.py
 
 ## requirements
  - Python 3.6 (maybe 3.5 will work as well)
- - PyTorch 3.1
+ - PyTorch 0.4
  - Additional requirements in requirements.txt
 
 # Results
