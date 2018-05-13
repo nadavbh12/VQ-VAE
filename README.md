@@ -39,7 +39,11 @@ k - number of elements in the dictionary. d - dimension of elements in the dicti
 
 - [ ] Sample using PixelCNN prior
 
-- [X] Improve results on cifar
+- [ ] Improve results on cifar - nearest neighbor should be performed to 10 dictionaries rather than 1
+
+- [ ] Improve results on cifar - replace MSE with NLL
+
+- [ ] Improve results on cifar - measure bits/dim
 
 - [X] Merge VAE and VQ-VAE for MNIST and Cifar to one script
 
