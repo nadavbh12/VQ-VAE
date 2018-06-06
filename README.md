@@ -45,6 +45,8 @@ k - number of elements in the dictionary. d - dimension of elements in the dicti
 
 - [ ] Improve results on cifar - measure bits/dim
 
+- [ ] Compare architecture with the [offical one](https://github.com/deepmind/sonnet/blob/master/sonnet/python/modules/nets/vqvae.py)
+
 - [X] Merge VAE and VQ-VAE for MNIST and Cifar to one script
 
 # Acknowledgement
