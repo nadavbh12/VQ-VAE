@@ -40,7 +40,7 @@ class NearestEmbedFunc(Function):
         shifted_shape = [input.shape[0], *list(input.shape[2:]) ,input.shape[1]]
         result = emb.t().index_select(0, argmin.view(-1)).view(shifted_shape).permute(0, ctx.dims[-1], *ctx.dims[1:-1])
 
-        ctx.save_for_backward( argmin )
+        ctx.save_for_backward(argmin)
         return result.contiguous(), argmin
 
     @staticmethod
@@ -50,7 +50,7 @@ class NearestEmbedFunc(Function):
             grad_input = grad_output
 
         if ctx.needs_input_grad[1]:
-            argmin = ctx.saved_variables
+            argmin, = ctx.saved_variables
             latent_indices = torch.arange(ctx.num_emb).type_as(argmin)
             idx_choices = (argmin.view(-1, 1) == latent_indices.view(1, -1)).type_as(grad_output.data)
             n_idx_choice = idx_choices.sum(0)

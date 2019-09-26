@@ -229,7 +229,7 @@ class CVAE(AbstractAutoEncoder):
     def decode(self, z):
         z = z.view(-1, self.d, self.f, self.f)
         h3 = self.decoder(z)
-        return F.tanh(h3)
+        return torch.tanh(h3)
 
     def forward(self, x):
         mu, logvar = self.encode(x)
@@ -309,7 +309,7 @@ class VQ_CVAE(nn.Module):
         return self.encoder(x)
 
     def decode(self, x):
-        return F.tanh(self.decoder(x))
+        return torch.tanh(self.decoder(x))
 
     def forward(self, x):
         z_e = self.encode(x)
