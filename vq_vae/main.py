@@ -7,10 +7,11 @@ import argparse
 import torch.utils.data
 from torch import optim
 import torch.backends.cudnn as cudnn
+from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
-from torchvision.utils import save_image
+from torchvision.utils import save_image, make_grid
 
-from utils.log import setup_logging_and_results
+from vq_vae.util import setup_logging_from_args
 from vq_vae.auto_encoder import *
 
 models = {
@@ -99,6 +100,8 @@ def main(args):
                                  help='directory containing the dataset')
     training_parser.add_argument('--epochs', type=int, default=20, metavar='N',
                                  help='number of epochs to train (default: 10)')
+    training_parser.add_argument('--max-epoch-samples', type=int, default=50000,
+                                 help='max num of samples per epoch')
     training_parser.add_argument('--no-cuda', action='store_true', default=False,
                                  help='enables CUDA training')
     training_parser.add_argument('--seed', type=int, default=1, metavar='S',
@@ -124,7 +127,8 @@ def main(args):
     hidden = args.hidden or default_hyperparams[args.dataset]['hidden']
     num_channels = dataset_n_channels[args.dataset]
 
-    results, save_path = setup_logging_and_results(args)
+    save_path = setup_logging_from_args(args)
+    writer = SummaryWriter(save_path)
 
     torch.manual_seed(args.seed)
     if args.cuda:
@@ -144,7 +148,7 @@ def main(args):
     kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
     dataset_train_dir = os.path.join(args.data_dir, dataset_dir_name)
     dataset_test_dir = os.path.join(args.data_dir, dataset_dir_name)
-    if 'imagenet' in args.dataset:
+    if args.dataset in ['imagenet', 'custom']:
         dataset_train_dir = os.path.join(dataset_train_dir, 'train')
         dataset_test_dir = os.path.join(dataset_test_dir, 'val')
     train_loader = torch.utils.data.DataLoader(
@@ -156,20 +160,24 @@ def main(args):
         datasets_classes[args.dataset](dataset_test_dir,
                                        transform=dataset_transforms[args.dataset],
                                        **dataset_test_args[args.dataset]),
-        batch_size=args.batch_size, shuffle=True, **kwargs)
+        batch_size=args.batch_size, shuffle=False, **kwargs)
 
     for epoch in range(1, args.epochs + 1):
-        train_losses = train(epoch, model, train_loader, optimizer, args.cuda, args.log_interval, save_path, args)
-        test_losses = test_net(epoch, model, test_loader, args.cuda, save_path, args)
-        results.add(epoch=epoch, **train_losses, **test_losses)
-        for k in train_losses:
-            key = k[:-6]
-            results.plot(x='epoch', y=[key + '_train', key + '_test'])
-        results.save()
+        train_losses = train(epoch, model, train_loader, optimizer, args.cuda,
+                             args.log_interval, save_path, args, writer)
+        test_losses = test_net(epoch, model, test_loader, args.cuda, save_path, args, writer)
+
+        for k in train_losses.keys():
+            name = k.replace('_train', '')
+            train_name = k
+            test_name = k.replace('train', 'test')
+            writer.add_scalars(name, {'train': train_losses[train_name],
+                                      'test': test_losses[test_name],
+                                      })
         scheduler.step()
 
 
-def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path, args):
+def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path, args, writer):
     model.train()
     loss_dict = model.latest_losses()
     losses = {k + '_train': 0 for k, v in loss_dict.items()}
@@ -200,13 +208,16 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path, 
                                  time=time.time() - start_time,
                                  loss=loss_string))
             start_time = time.time()
-            # logging.info('z_e norm: {}'.format(float(torch.mean(torch.norm(outputs[1].contiguous().view(256,-1),2,0)))))
-            # logging.info('z_q norm: {}'.format(float(torch.mean(torch.norm(outputs[2].contiguous().view(256,-1),2,0)))))
+            # logging.info('z_e norm: {:.2f}'.format(float(torch.mean(torch.norm(outputs[1][0].contiguous().view(256,-1),2,0)))))
+            # logging.info('z_q norm: {:.2f}'.format(float(torch.mean(torch.norm(outputs[2][0].contiguous().view(256,-1),2,0)))))
             for key in latest_losses:
                 losses[key + '_train'] = 0
         if batch_idx == (len(train_loader) - 1):
             save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_train')
-        if args.dataset not in ['imagenet', 'custom'] and batch_idx * len(data) > 25000:
+
+            write_images(data, outputs, writer, 'train')
+
+        if args.dataset in ['imagenet', 'custom'] and batch_idx * len(data) > args.max_epoch_samples:
             break
 
     for key in epoch_losses:
@@ -216,11 +227,12 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path, 
             epoch_losses[key] /= (len(train_loader.dataset) / train_loader.batch_size)
     loss_string = '\t'.join(['{}: {:.6f}'.format(k, v) for k, v in epoch_losses.items()])
     logging.info('====> Epoch: {} {}'.format(epoch, loss_string))
+    writer.add_histogram('dict frequency', outputs[3], bins=range(args.k + 1))
     model.print_atom_hist(outputs[3])
     return epoch_losses
 
 
-def test_net(epoch, model, test_loader, cuda, save_path, args):
+def test_net(epoch, model, test_loader, cuda, save_path, args, writer):
     model.eval()
     loss_dict = model.latest_losses()
     losses = {k + '_test': 0 for k, v in loss_dict.items()}
@@ -235,7 +247,10 @@ def test_net(epoch, model, test_loader, cuda, save_path, args):
             for key in latest_losses:
                 losses[key + '_test'] += float(latest_losses[key])
             if i == 0:
+                write_images(data, outputs, writer, 'test')
+
                 save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_test')
+                save_checkpoint(model, epoch, save_path)
             if args.dataset == 'imagenet' and i * len(data) > 1000:
                 break
 
@@ -249,6 +264,15 @@ def test_net(epoch, model, test_loader, cuda, save_path, args):
     return losses
 
 
+def write_images(data, outputs, writer, suffix):
+    original = data.mul(0.5).add(0.5)
+    original_grid = make_grid(original[:6])
+    writer.add_image(f'original/{suffix}', original_grid)
+    reconstructed = outputs[0].mul(0.5).add(0.5)
+    reconstructed_grid = make_grid(reconstructed[:6])
+    writer.add_image(f'reconstructed/{suffix}', reconstructed_grid)
+
+
 def save_reconstructed_images(data, epoch, outputs, save_path, name):
     size = data.size()
     n = min(data.size(0), 8)
@@ -257,6 +281,12 @@ def save_reconstructed_images(data, epoch, outputs, save_path, name):
                             outputs.view(batch_size, size[1], size[2], size[3])[:n]])
     save_image(comparison.cpu(),
                os.path.join(save_path, name + '_' + str(epoch) + '.png'), nrow=n, normalize=True)
+
+
+def save_checkpoint(model, epoch, save_path):
+    os.makedirs(os.path.join(save_path, 'checkpoints'), exist_ok=True)
+    checkpoint_path = os.path.join(save_path, 'checkpoints', f'model_{epoch}.pth')
+    torch.save(model.state_dict(), checkpoint_path)
 
 
 if __name__ == "__main__":
