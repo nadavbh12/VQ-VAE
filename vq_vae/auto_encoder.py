@@ -6,10 +6,9 @@ import logging
 import torch
 import torch.utils.data
 from torch import nn
-from torch.autograd import Variable
 from torch.nn import functional as F
 
-from .nearest_embed import NearestEmbed
+from .nearest_embed import NearestEmbed, NearestEmbedEMA
 
 
 class AbstractAutoEncoder(nn.Module):
@@ -69,7 +68,7 @@ class VAE(nn.Module):
     def reparameterize(self, mu, logvar):
         if self.training:
             std = logvar.mul(0.5).exp_()
-            eps = Variable(std.new(std.size()).normal_())
+            eps = std.new(std.size()).normal_()
             return eps.mul(std).add_(mu)
         else:
             return mu
@@ -84,7 +83,7 @@ class VAE(nn.Module):
         return self.decode(z), mu, logvar
 
     def sample(self, size):
-        sample = Variable(torch.randn(size, 20))
+        sample = torch.randn(size, 20)
         if self.cuda():
             sample = sample.cuda()
         sample = self.decode(sample).cpu()
@@ -144,7 +143,7 @@ class VQ_VAE(nn.Module):
         return self.decode(z_q), z_e, emb
 
     def sample(self, size):
-        sample = Variable(torch.randn(size, self.emb_size, int(self.hidden / self.emb_size)))
+        sample = torch.randn(size, self.emb_size, int(self.hidden / self.emb_size))
         if self.cuda():
             sample = sample.cuda()
         emb, _ = self.emb(sample)
@@ -163,16 +162,19 @@ class VQ_VAE(nn.Module):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, in_channels, channels, bn=False):
+    def __init__(self, in_channels, out_channels, mid_channels=None, bn=False):
         super(ResBlock, self).__init__()
+
+        if mid_channels is None:
+            mid_channels = out_channels
 
         layers = [
             nn.ReLU(),
-            nn.Conv2d(in_channels, channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels, mid_channels, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels, channels, kernel_size=1, stride=1, padding=0)]
+            nn.Conv2d(mid_channels, out_channels, kernel_size=1, stride=1, padding=0)]
         if bn:
-            layers.insert(2, nn.BatchNorm2d(channels))
+            layers.insert(2, nn.BatchNorm2d(out_channels))
         self.convs = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -221,7 +223,7 @@ class CVAE(AbstractAutoEncoder):
     def reparameterize(self, mu, logvar):
         if self.training:
             std = logvar.mul(0.5).exp_()
-            eps = Variable(std.new(std.size()).normal_())
+            eps = std.new(std.size()).normal_()
             return eps.mul(std).add_(mu)
         else:
             return mu
@@ -237,7 +239,7 @@ class CVAE(AbstractAutoEncoder):
         return self.decode(z), mu, logvar
 
     def sample(self, size):
-        sample = Variable(torch.randn(size, self.d * self.f ** 2), requires_grad=False)
+        sample = torch.randn(size, self.d * self.f ** 2, requires_grad=False)
         if self.cuda():
             sample = sample.cuda()
         return self.decode(sample).cpu()
@@ -291,7 +293,7 @@ class VQ_CVAE(nn.Module):
         self.vq_coef = vq_coef
         self.commit_coef = commit_coef
         self.mse = 0
-        self.vq_loss = Variable(torch.zeros(1))
+        self.vq_loss = torch.zeros(1)
         self.commit_loss = 0
 
         for l in self.modules():
@@ -319,7 +321,7 @@ class VQ_CVAE(nn.Module):
         return self.decode(z_q), z_e, emb, argmin
 
     def sample(self, size):
-        sample = Variable(torch.randn(size, self.d, self.f, self.f), requires_grad=False)
+        sample = torch.randn(size, self.d, self.f, self.f, requires_grad=False),
         if self.cuda():
             sample = sample.cuda()
         emb, _ = self.emb(sample)
