@@ -46,6 +46,7 @@ class AbstractAutoEncoder(nn.Module):
 class VAE(nn.Module):
     """Variational AutoEncoder for MNIST
        Taken from pytorch/examples: https://github.com/pytorch/examples/tree/master/vae"""
+
     def __init__(self, kl_coef=1, **kwargs):
         super(VAE, self).__init__()
 
@@ -90,7 +91,8 @@ class VAE(nn.Module):
         return sample
 
     def loss_function(self, x, recon_x, mu, logvar):
-        self.bce = F.binary_cross_entropy(recon_x, x.view(-1, 784), size_average=False)
+        self.bce = F.binary_cross_entropy(
+            recon_x, x.view(-1, 784), size_average=False)
         batch_size = x.size(0)
 
         # see Appendix B from VAE paper:
@@ -107,6 +109,7 @@ class VAE(nn.Module):
 
 class VQ_VAE(nn.Module):
     """Vector Quantized AutoEncoder for mnist"""
+
     def __init__(self, hidden=200, k=10, vq_coef=0.2, comit_coef=0.4, **kwargs):
         super(VQ_VAE, self).__init__()
 
@@ -143,7 +146,8 @@ class VQ_VAE(nn.Module):
         return self.decode(z_q), z_e, emb
 
     def sample(self, size):
-        sample = torch.randn(size, self.emb_size, int(self.hidden / self.emb_size))
+        sample = torch.randn(size, self.emb_size,
+                             int(self.hidden / self.emb_size))
         if self.cuda():
             sample = sample.cuda()
         emb, _ = self.emb(sample)
@@ -170,9 +174,12 @@ class ResBlock(nn.Module):
 
         layers = [
             nn.ReLU(),
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels, mid_channels,
+                      kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=1, stride=1, padding=0)]
+            nn.Conv2d(mid_channels, out_channels,
+                      kernel_size=1, stride=1, padding=0)
+        ]
         if bn:
             layers.insert(2, nn.BatchNorm2d(out_channels))
         self.convs = nn.Sequential(*layers)
@@ -186,10 +193,12 @@ class CVAE(AbstractAutoEncoder):
         super(CVAE, self).__init__()
 
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, d // 2, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.Conv2d(3, d // 2, kernel_size=4,
+                      stride=2, padding=1, bias=False),
             nn.BatchNorm2d(d // 2),
             nn.ReLU(inplace=True),
-            nn.Conv2d(d // 2, d, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.Conv2d(d // 2, d, kernel_size=4,
+                      stride=2, padding=1, bias=False),
             nn.BatchNorm2d(d),
             nn.ReLU(inplace=True),
             ResBlock(d, d, bn=True),
@@ -202,10 +211,12 @@ class CVAE(AbstractAutoEncoder):
             ResBlock(d, d, bn=True),
             nn.BatchNorm2d(d),
 
-            nn.ConvTranspose2d(d, d // 2, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.ConvTranspose2d(d, d // 2, kernel_size=4,
+                               stride=2, padding=1, bias=False),
             nn.BatchNorm2d(d//2),
             nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(d // 2, 3, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.ConvTranspose2d(d // 2, 3, kernel_size=4,
+                               stride=2, padding=1, bias=False),
         )
         self.f = 8
         self.d = d
@@ -274,9 +285,9 @@ class VQ_CVAE(nn.Module):
             nn.Conv2d(d, d, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(d),
             nn.ReLU(inplace=True),
-            ResBlock(d, d, bn),
+            ResBlock(d, d, bn=bn),
             nn.BatchNorm2d(d),
-            ResBlock(d, d, bn),
+            ResBlock(d, d, bn=bn),
             nn.BatchNorm2d(d),
         )
         self.decoder = nn.Sequential(
@@ -286,7 +297,8 @@ class VQ_CVAE(nn.Module):
             nn.ConvTranspose2d(d, d, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(d),
             nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(d, num_channels, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(
+                d, num_channels, kernel_size=4, stride=2, padding=1),
         )
         self.d = d
         self.emb = NearestEmbed(k, d)
@@ -321,7 +333,8 @@ class VQ_CVAE(nn.Module):
         return self.decode(z_q), z_e, emb, argmin
 
     def sample(self, size):
-        sample = torch.randn(size, self.d, self.f, self.f, requires_grad=False),
+        sample = torch.randn(size, self.d, self.f,
+                             self.f, requires_grad=False),
         if self.cuda():
             sample = sample.cuda()
         emb, _ = self.emb(sample)
@@ -331,7 +344,8 @@ class VQ_CVAE(nn.Module):
         self.mse = F.mse_loss(recon_x, x)
 
         self.vq_loss = torch.mean(torch.norm((emb - z_e.detach())**2, 2, 1))
-        self.commit_loss = torch.mean(torch.norm((emb.detach() - z_e)**2, 2, 1))
+        self.commit_loss = torch.mean(
+            torch.norm((emb.detach() - z_e)**2, 2, 1))
 
         return self.mse + self.vq_coef*self.vq_loss + self.commit_coef*self.commit_loss
 
@@ -344,3 +358,8 @@ class VQ_CVAE(nn.Module):
         unique, counts = np.unique(argmin, return_counts=True)
         logging.info(counts)
         logging.info(unique)
+
+
+class VQ_CVAE2(nn.Module):
+    def __init__(self, d, k=10, bn=True, vq_coef=1, commit_coef=0.5, num_channels=3, **kwargs):
+        super(VQ_CVAE2, self).__init__()
